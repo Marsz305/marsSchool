@@ -10,9 +10,9 @@ function AdminDash(){
   const [uploading,setUploading]=useState(false)
 
   const load=async()=>{
-    try{ const {data:u}=await supabase.from('users').select('*').order('created_at',{ascending:false}); if(u) setUsers(u)}catch(e){}
-    try{ const {data:c}=await supabase.from('classes').select('*').order('name'); if(c) setClasses(c)}catch(e){}
-    try{ const {data:a}=await supabase.from('assignments').select('*').order('created_at',{ascending:false}); if(a) setAssignments(a)}catch(e){}
+    try{ const {data:u}=await supabase.from('users').select('*').order('created_at',{ascending:false}); if(u) setUsers(u)}catch{}
+    try{ const {data:c}=await supabase.from('classes').select('*').order('name'); if(c) setClasses(c)}catch{}
+    try{ const {data:a}=await supabase.from('assignments').select('*').order('created_at',{ascending:false}); if(a) setAssignments(a)}catch{}
   }
   useEffect(()=>{load()},[])
 
@@ -40,10 +40,10 @@ function AdminDash(){
           <div className="grid gap-3 mt-4">
             {pending.length===0 && <p className="text-center py-10 text-zinc-500">No pending requests</p>}
             {pending.map(u=>(
-              <div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between gap-3">
+              <div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between gap-3 flex-wrap">
                 <div><p className="font-bold">{u.email}</p><p className="text-xs text-zinc-400">{u.full_name} - {u.role}</p></div>
                 <div className="flex gap-2">
-                  <select id={`c-${u.id}`} className="bg-zinc-800 border border-white/10 p-2 rounded-xl text-sm"><option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                  <select id={`c-${u.id}`} className="bg-zinc-800 border border-white/10 p-2 rounded-xl text-sm text-white"><option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
                   <button onClick={async()=>{ const cid=document.getElementById(`c-${u.id}`).value||null; await supabase.from('users').update({is_active:true, class_id:cid}).eq('id',u.id); load()}} className="bg-green-600 px-4 py-2 rounded-xl text-sm font-bold">Approve</button>
                   <button onClick={async()=>{ await supabase.from('users').delete().eq('id',u.id); load()}} className="bg-zinc-800 px-3 py-2 rounded-xl text-sm">Reject</button>
                 </div>
@@ -56,7 +56,7 @@ function AdminDash(){
       {tab==="users" && (
         <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6 overflow-auto">
           <table className="w-full text-sm min-w-[800px]"><thead><tr className="text-zinc-500 text-xs uppercase"><th className="text-left p-3">User</th><th>Role</th><th>Class</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody>{users.map(u=><tr key={u.id} className="border-t border-white/5"><td className="p-3 font-bold">{u.email}<p className="text-xs text-zinc-500">{u.full_name}</p></td><td><select value={(u.role||'').toLowerCase()} onChange={async(e)=>{await supabase.from('users').update({role:e.target.value}).eq('id',u.id); load()}} className="bg-black border border-white/10 p-2 rounded-xl text-xs"><option value="student">student</option><option value="faculty">faculty</option><option value="teacher">teacher</option><option value="school_admin">school_admin</option><option value="super_admin">super_admin</option></select></td><td className="text-xs">{classes.find(c=>c.id===u.class_id)?.name||'-'}</td><td>{u.is_active?<span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full text-xs">Active</span>:<span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full text-xs">Pending</span>}</td><td className="flex gap-1 p-2"><button onClick={async()=>{await supabase.from('users').update({is_active:!u.is_active}).eq('id',u.id); load()}} className="bg-zinc-800 px-3 py-1 rounded-xl text-xs">{u.is_active?'Revoke':'Approve'}</button><button onClick={async()=>{if(confirm('Delete?')){await supabase.from('users').delete().eq('id',u.id); load()}}} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-xl text-xs">Delete</button></td></tr>)}</tbody></table>
+            <tbody>{users.map(u=><tr key={u.id} className="border-t border-white/5"><td className="p-3 font-bold">{u.email}<p className="text-xs text-zinc-500">{u.full_name}</p></td><td><select value={(u.role||'').toLowerCase()} onChange={async(e)=>{await supabase.from('users').update({role:e.target.value}).eq('id',u.id); load()}} className="bg-black border border-white/10 p-2 rounded-xl text-xs text-white"><option value="student">student</option><option value="faculty">faculty</option><option value="teacher">teacher</option><option value="school_admin">school_admin</option><option value="super_admin">super_admin</option></select></td><td className="text-xs">{classes.find(c=>c.id===u.class_id)?.name||'-'}</td><td>{u.is_active?<span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full text-xs">Active</span>:<span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full text-xs">Pending</span>}</td><td className="flex gap-1 p-2"><button onClick={async()=>{await supabase.from('users').update({is_active:!u.is_active}).eq('id',u.id); load()}} className="bg-zinc-800 px-3 py-1 rounded-xl text-xs">{u.is_active?'Revoke':'Approve'}</button><button onClick={async()=>{if(confirm('Delete?')){await supabase.from('users').delete().eq('id',u.id); load()}}} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-xl text-xs">Delete</button></td></tr>)}</tbody></table>
         </div>
       )}
 
@@ -64,10 +64,10 @@ function AdminDash(){
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="bg-zinc-900/70 border border-white/10 p-6 rounded-[24px]">
             <h3 className="font-black mb-4">Create Class + Assign Faculty</h3>
-            <input value={classForm.name} onChange={e=>setClassForm({...classForm,name:e.target.value})} placeholder="e.g Form 1A, CS4000" className="w-full bg-black border border-white/10 p-3.5 rounded-2xl mb-3"/>
-            <select value={classForm.faculty_id} onChange={e=>setClassForm({...classForm,faculty_id:e.target.value})} className="w-full bg-black border border-white/10 p-3.5 rounded-2xl mb-3"><option value="">Select Faculty</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select>
-            <button onClick={async()=>{ if(!classForm.name) return; const {data,error}=await supabase.from('classes').insert({name:classForm.name, faculty_id:classForm.faculty_id||null}).select(); if(error) alert(error.message); else {setClassForm({name:"",faculty_id:""}); load()}}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">Create Class</button>
-            <div className="mt-6 space-y-2">{classes.map(c=><div key={c.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between"><div><p className="font-bold">{c.name}</p><p className="text-xs text-zinc-500">{users.filter(u=>u.class_id===c.id).length} students - {facultyList.find(f=>f.id===c.faculty_id)?.email||'No faculty'}</p></div><select value={c.faculty_id||''} onChange={async(e)=>{await supabase.from('classes').update({faculty_id:e.target.value||null}).eq('id',c.id); load()}} className="bg-zinc-800 text-xs p-2 rounded-xl"><option value="">Assign</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select></div>)}</div>
+            <input value={classForm.name} onChange={e=>setClassForm({...classForm,name:e.target.value})} placeholder="e.g Form 1A, CS4000" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white placeholder:text-zinc-500"/>
+            <select value={classForm.faculty_id} onChange={e=>setClassForm({...classForm,faculty_id:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white"><option value="">Select Faculty</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select>
+            <button onClick={async()=>{ if(!classForm.name) return; const {error}=await supabase.from('classes').insert({name:classForm.name, faculty_id:classForm.faculty_id||null}).select(); if(error) alert(error.message); else {setClassForm({name:"",faculty_id:""}); load()}}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">Create Class</button>
+            <div className="mt-6 space-y-2">{classes.map(c=><div key={c.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between"><div><p className="font-bold">{c.name}</p><p className="text-xs text-zinc-500">{users.filter(u=>u.class_id===c.id).length} students - {facultyList.find(f=>f.id===c.faculty_id)?.email||'No faculty'}</p></div><select value={c.faculty_id||''} onChange={async(e)=>{await supabase.from('classes').update({faculty_id:e.target.value||null}).eq('id',c.id); load()}} className="bg-zinc-800 text-xs p-2 rounded-xl text-white"><option value="">Assign</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select></div>)}</div>
           </div>
           <div className="bg-zinc-900/70 border border-white/10 p-6 rounded-[24px]"><h3 className="font-black mb-4">Roster</h3>{classes.map(c=><div key={c.id} className="mb-4"><p className="font-bold text-orange-400">{c.name}</p>{users.filter(u=>u.class_id===c.id).map(u=><div key={u.id} className="text-sm bg-black/40 p-2 rounded-xl mt-1">{u.email} ({u.role})</div>)}</div>)}</div>
         </div>
@@ -78,10 +78,10 @@ function AdminDash(){
           <div className="bg-zinc-900/70 border border-orange-500/20 p-6 rounded-[24px]">
             <h3 className="font-black mb-4">Publish Assignment</h3>
             <div className="space-y-3">
-              <input value={assignForm.title} onChange={e=>setAssignForm({...assignForm,title:e.target.value})} placeholder="Title" className="w-full bg-black border border-white/10 p-3.5 rounded-2xl"/>
-              <div className="grid grid-cols-2 gap-3"><input value={assignForm.course} onChange={e=>setAssignForm({...assignForm,course:e.target.value})} placeholder="Course" className="bg-black border border-white/10 p-3.5 rounded-2xl"/><select value={assignForm.class_id} onChange={e=>setAssignForm({...assignForm,class_id:e.target.value})} className="bg-black border border-white/10 p-3.5 rounded-2xl"><option value="">All Classes</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-              <input type="datetime-local" value={assignForm.due_date} onChange={e=>setAssignForm({...assignForm,due_date:e.target.value})} className="w-full bg-black border border-white/10 p-3.5 rounded-2xl"/>
-              <input type="file" onChange={e=>setAssignForm({...assignForm,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-xl bg-black border border-white/10 p-2 rounded-2xl"/>
+              <input value={assignForm.title} onChange={e=>setAssignForm({...assignForm,title:e.target.value})} placeholder="Title" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/>
+              <div className="grid grid-cols-2 gap-3"><input value={assignForm.course} onChange={e=>setAssignForm({...assignForm,course:e.target.value})} placeholder="Course" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/><select value={assignForm.class_id} onChange={e=>setAssignForm({...assignForm,class_id:e.target.value})} className="bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"><option value="">All Classes</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <input type="datetime-local" value={assignForm.due_date} onChange={e=>setAssignForm({...assignForm,due_date:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/>
+              <input type="file" onChange={e=>setAssignForm({...assignForm,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-xl bg-zinc-800 border border-white/10 p-2 rounded-2xl text-white"/>
               <button disabled={uploading} onClick={async()=>{ if(!assignForm.title||!assignForm.due_date) return alert('Title & Due date needed'); setUploading(true); let url=null; if(assignForm.file){ const path=`${Date.now()}_${assignForm.file.name}`; const {error}=await supabase.storage.from('mars-files').upload(path, assignForm.file); if(!error) url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl } await supabase.from('assignments').insert({title:assignForm.title,course:assignForm.course,due_date:assignForm.due_date,class_id:assignForm.class_id||null,attachment_url:url}); setUploading(false); setAssignForm({title:"",course:"",due_date:"",class_id:"",file:null}); load()}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">{uploading?'Publishing...':'Publish'}</button>
             </div>
           </div>
@@ -98,10 +98,10 @@ function FacultyDash({user, profile}){
   useEffect(()=>{ (async()=>{ const {data:c}=await supabase.from('classes').select('*').eq('faculty_id',user.id); if(c){ setMyClasses(c); const ids=c.map(x=>x.id); if(ids.length){ const {data:u}=await supabase.from('users').select('*').in('class_id',ids); if(u) setStudents(u) } } })() },[user.id])
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-br from-orange-600/20 to-zinc-900 border border-orange-500/20 p-6 rounded-[24px]"><h2 className="text-2xl font-black">Welcome, {profile.full_name||user.email}</h2><p className="text-zinc-400">You teach: {myClasses.map(c=>c.name).join(', ')||'No class assigned'}</p></div>
+      <div className="bg-gradient-to-br from-orange-600/20 to-zinc-900 border border-orange-500/20 p-6 rounded-[24px]"><h2 className="text-2xl font-black">Welcome, {profile.full_name||user.email}</h2><p className="text-zinc-400">You teach: {myClasses.map(c=>c.name).join(', ')||'No class assigned yet'}</p></div>
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="bg-zinc-900/70 border border-white/10 p-6 rounded-[24px]"><h3 className="font-black mb-4">My Students ({students.length})</h3>{myClasses.map(c=><div key={c.id} className="mb-4"><p className="font-bold text-orange-400">{c.name}</p>{students.filter(s=>s.class_id===c.id).map(s=><div key={s.id} className="bg-black/40 p-2 rounded-xl mt-1 text-sm">{s.email} - {s.full_name}</div>)}</div>)}</div>
-        <div className="bg-zinc-900/70 border border-orange-500/20 p-6 rounded-[24px]"><h3 className="font-black mb-4">Create Assignment</h3><div className="space-y-3"><input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Title" className="w-full bg-black border border-white/10 p-3.5 rounded-2xl"/><select value={form.class_id} onChange={e=>setForm({...form,class_id:e.target.value})} className="w-full bg-black border border-white/10 p-3.5 rounded-2xl"><option value="">My Class</option>{myClasses.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><input type="datetime-local" value={form.due_date} onChange={e=>setForm({...form,due_date:e.target.value})} className="w-full bg-black border border-white/10 p-3.5 rounded-2xl"/><input type="file" onChange={e=>setForm({...form,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-xl bg-black border border-white/10 p-2 rounded-2xl"/><button onClick={async()=>{ if(!form.title||!form.class_id) return alert('Select class'); let url=null; if(form.file){ const path=`${Date.now()}_${form.file.name}`; await supabase.storage.from('mars-files').upload(path,form.file); url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl } await supabase.from('assignments').insert({title:form.title,course:form.course,due_date:form.due_date,class_id:form.class_id,attachment_url:url}); alert('Published') }} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">Publish</button></div></div>
+        <div className="bg-zinc-900/70 border border-orange-500/20 p-6 rounded-[24px]"><h3 className="font-black mb-4">Create Assignment</h3><div className="space-y-3"><input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Title" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/><select value={form.class_id} onChange={e=>setForm({...form,class_id:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"><option value="">My Class</option>{myClasses.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><input type="datetime-local" value={form.due_date} onChange={e=>setForm({...form,due_date:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><input type="file" onChange={e=>setForm({...form,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-xl bg-zinc-800 border border-white/10 p-2 rounded-2xl text-white"/><button onClick={async()=>{ if(!form.title||!form.class_id) return alert('Select class'); let url=null; if(form.file){ const path=`${Date.now()}_${form.file.name}`; await supabase.storage.from('mars-files').upload(path,form.file); url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl } await supabase.from('assignments').insert({title:form.title,course:form.course,due_date:form.due_date,class_id:form.class_id,attachment_url:url}); alert('Published') }} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">Publish</button></div></div>
       </div>
     </div>
   )
@@ -124,45 +124,47 @@ function StudentDash({user, profile}){
 
 function LoginForm({type}){
   const [loading,setLoading]=useState(false)
+  const inputLight="w-full bg-slate-100 text-black p-4 rounded-2xl placeholder:text-zinc-500 outline-none border-2 border-transparent focus:border-orange-500"
+  const inputDark="w-full bg-zinc-800 border border-white/20 p-3.5 rounded-2xl text-white placeholder:text-zinc-500 outline-none focus:border-orange-500"
+
   const handleLogin=async(e)=>{
     e.preventDefault(); setLoading(true)
-    const email=e.target.email.value
-    const password=e.target.password.value
-    const {error}=await supabase.auth.signInWithPassword({email,password})
+    const {error}=await supabase.auth.signInWithPassword({email:e.target.email.value,password:e.target.password.value})
     if(error) alert(error.message)
     setLoading(false)
   }
   const handleSignup=async(e)=>{
     e.preventDefault(); setLoading(true)
-    const fullname=e.target.fullname.value
-    const email=e.target.email.value
-    const password=e.target.password.value
-    const role=e.target.role.value
     const {error}=await supabase.auth.signUp({
-      email: email,
-      password: password,
-      options: { data: { full_name: fullname, role: role } }
+      email:e.target.email.value,
+      password:e.target.password.value,
+      options:{ data:{ full_name:e.target.fullname.value, role:e.target.role.value } }
     })
     if(error) alert(error.message)
     else alert('Account created! Wait for admin approval')
     setLoading(false)
   }
+
   if(type==='login'){
     return (
       <form onSubmit={handleLogin} className="space-y-3">
-        <input name="email" placeholder="Email" className="w-full bg-black border border-white/10 p-4 rounded-2xl" required/>
-        <input name="password" type="password" placeholder="Password" className="w-full bg-black border border-white/10 p-4 rounded-2xl" required/>
-        <button disabled={loading} className="w-full bg-orange-600 p-4 rounded-2xl font-black">{loading?'Loading...':'LOGIN'}</button>
+        <input name="email" placeholder="Email" className={inputLight} required/>
+        <input name="password" type="password" placeholder="Password" className={inputLight} required/>
+        <button disabled={loading} className="w-full bg-orange-600 hover:bg-orange-500 p-4 rounded-2xl font-black text-black transition">{loading?'Loading...':'LOGIN'}</button>
       </form>
     )
   }
   return (
-    <form onSubmit={handleSignup} className="mt-3 space-y-2">
-      <input name="fullname" placeholder="Full Name" className="w-full bg-black border border-white/10 p-3 rounded-2xl" required/>
-      <input name="email" placeholder="Email" className="w-full bg-black border border-white/10 p-3 rounded-2xl" required/>
-      <input name="password" type="password" placeholder="Password" className="w-full bg-black border border-white/10 p-3 rounded-2xl" required/>
-      <select name="role" className="w-full bg-black border border-white/10 p-3 rounded-2xl"><option value="student">Student</option><option value="faculty">Faculty</option><option value="parent">Parent</option></select>
-      <button disabled={loading} className="w-full bg-zinc-800 p-3 rounded-2xl">{loading?'Creating...':'Sign Up'}</button>
+    <form onSubmit={handleSignup} className="mt-3 space-y-3 bg-zinc-800/50 p-4 rounded-[24px] border border-white/10">
+      <input name="fullname" placeholder="Full Name" className={inputDark} required/>
+      <input name="email" placeholder="Email" className={inputDark} required/>
+      <input name="password" type="password" placeholder="Password (min 6)" className={inputDark} required/>
+      <select name="role" className={inputDark}>
+        <option value="student" className="bg-zinc-800">Student</option>
+        <option value="faculty" className="bg-zinc-800">Faculty / Teacher</option>
+        <option value="parent" className="bg-zinc-800">Parent</option>
+      </select>
+      <button disabled={loading} className="w-full bg-white text-black p-3.5 rounded-2xl font-bold hover:bg-zinc-200 transition">{loading?'Creating...':'Sign Up'}</button>
     </form>
   )
 }
@@ -187,10 +189,10 @@ export default function AppWrapper(){
   if(loading) return <div className="min-h-screen bg-black flex items-center justify-center text-white">Loading MARS...</div>
   if(!user) return (
     <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4">
-      <div className="bg-zinc-900/80 p-8 rounded-[32px] w-full max-w-md border border-white/10">
-        <h1 className="text-4xl font-black mb-1"><span className="text-orange-500">MARS</span> E-School</h1><p className="text-zinc-500 text-sm mb-8">Modern Learning OS</p>
+      <div className="bg-zinc-900/80 backdrop-blur-xl p-8 rounded-[32px] w-full max-w-md border border-white/10 shadow-2xl">
+        <h1 className="text-4xl font-black mb-1"><span className="text-orange-500">MARS</span> <span className="text-white">E-School</span></h1><p className="text-zinc-500 text-sm mb-8">Modern Learning OS</p>
         <LoginForm type="login"/>
-        <details className="mt-6"><summary className="text-zinc-400 text-sm cursor-pointer">Create account</summary><LoginForm type="signup"/></details>
+        <details className="mt-6"><summary className="text-zinc-400 text-sm cursor-pointer hover:text-white">Create account (needs approval)</summary><LoginForm type="signup"/></details>
       </div>
     </div>
   )
@@ -201,12 +203,12 @@ export default function AppWrapper(){
   const isAdmin=['super_admin','school_admin'].includes(role)
   const isFaculty=['faculty','teacher'].includes(role)
 
-  if(!isActive) return <div className="min-h-screen bg-black flex items-center justify-center p-6 text-center"><div className="bg-zinc-900 border border-orange-500/20 p-10 rounded-[32px] max-w-md"><h2 className="text-2xl font-black mb-2">Access Pending</h2><p className="text-zinc-400">Hi {user.email} as {role} waiting approval</p><button onClick={()=>supabase.auth.signOut()} className="mt-6 bg-zinc-800 px-6 py-3 rounded-full">Logout</button></div></div>
+  if(!isActive) return <div className="min-h-screen bg-black flex items-center justify-center p-6 text-center"><div className="bg-zinc-900 border border-orange-500/20 p-10 rounded-[32px] max-w-md"><h2 className="text-2xl font-black mb-2 text-white">Access Pending</h2><p className="text-zinc-400">Hi {user.email} as {role} waiting approval</p><button onClick={()=>supabase.auth.signOut()} className="mt-6 bg-zinc-800 px-6 py-3 rounded-full text-white">Logout</button></div></div>
 
   return (
     <div className="min-h-screen bg-[#080808] text-white p-4 md:p-8">
-      <header className="flex justify-between items-center mb-8 bg-zinc-900/60 p-3 pl-6 rounded-full border border-white/10">
-        <h1 className="text-xs md:text-sm font-black"><span className="text-orange-500">MARS</span> - {user.email} - {role.toUpperCase()}</h1>
+      <header className="flex justify-between items-center mb-8 bg-zinc-900/60 backdrop-blur-xl p-3 pl-6 rounded-full border border-white/10">
+        <h1 className="text-xs md:text-sm font-black"><span className="text-orange-500">MARS</span> • {user.email} • {role.toUpperCase()}</h1>
         <button onClick={()=>supabase.auth.signOut()} className="bg-white text-black px-5 py-2 rounded-full font-bold text-sm">Logout</button>
       </header>
       {isAdmin? <AdminDash/> : isFaculty? <FacultyDash user={user} profile={profile}/> : <StudentDash user={user} profile={profile}/>}
