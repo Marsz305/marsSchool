@@ -7,281 +7,236 @@ const supabase = createClient(
 )
 
 async function logAccess(user){
-  try {
-    await supabase.from('access_logs').insert({
-      user_id: user.id, email: user.email,
-      role: user.user_metadata?.role, device: navigator.userAgent
-    })
-    await supabase.from('audit_logs').insert({
-      user_id: user.id, action: `LOGIN - ${user.email}`, table_name: 'auth'
-    })
-  } catch {}
+  try{ await supabase.from('access_logs').insert({user_id:user.id,email:user.email,role:user.user_metadata?.role,device:navigator.userAgent}) }catch{}
 }
 
-function Countdown({ due }){
-  const [left, setLeft] = useState("")
-  useEffect(()=>{
-    const t = setInterval(()=>{
-      const diff = new Date(due) - new Date()
-      if(diff<=0){ setLeft("CLOSED"); return }
-      const h=Math.floor(diff/3600000), m=Math.floor((diff%3600000)/60000)
-      setLeft(`${h}h ${m}m left`)
-    },1000)
-    return ()=>clearInterval(t)
-  },[due])
-  return <span className={(new Date(due)-new Date())<86400000?"text-red-400":"text-orange-400"}>{left}</span>
-}
+// --- ADMIN DASHBOARD - FULL POWER ---
+function AdminDash(){
+  const [users,setUsers]=useState([]), [students,setStudents]=useState([])
+  const [assignments,setAssignments]=useState([]), [exams,setExams]=useState([])
+  const [classes,setClasses]=useState([]), [logs,setLogs]=useState([])
+  const [tab,setTab]=useState("overview")
 
-// --- SHARED NAV ---
-function Nav({ role, active, setActive, onLogout, unread }){
-  const menus = {
-    super_admin: ["Dashboard","Students","Classes","Teachers","Attendance","Assignments","Exams","Fees","Announcements","Audit Logs","Users"],
-    school_admin: ["Dashboard","Students","Classes","Teachers","Attendance","Assignments","Exams","Fees","Announcements","Users"],
-    teacher: ["Dashboard","My Classes","Attendance","Assignments","Exams","Students"],
-    student: ["Dashboard","My Assignments","My Results","My Fees","Timetable","Announcements"],
-    parent: ["Dashboard","My Children","Fees","Attendance","Results","Announcements"],
-    finance: ["Dashboard","Fees","Invoices","Reports","Students"],
-    registrar: ["Dashboard","Students","Classes","Admissions","Documents"],
-    faculty: ["Dashboard","My Classes","Attendance","Assignments","Exams","Students"]
+  // Forms
+  const [studForm,setStudForm]=useState({first_name:"",last_name:"",admission_number:"",class_id:""})
+  const [assignForm,setAssignForm]=useState({title:"",course:"General",due_date:"",max_marks:100, file:null})
+  const [examForm,setExamForm]=useState({name:"",exam_type:"Term Test"})
+  const [uploadProgress,setUploadProgress]=useState("")
+
+  const loadAll = async()=>{
+    const {data:u}=await supabase.from('profiles').select('*').order('created_at',{ascending:false})
+    const {data:s}=await supabase.from('students').select('*, classes(name)').order('created_at',{ascending:false})
+    const {data:a}=await supabase.from('assignments').select('*').order('created_at',{ascending:false}).limit(20)
+    const {data:e}=await supabase.from('exams').select('*').order('created_at',{ascending:false}).limit(20)
+    const {data:c}=await supabase.from('classes').select('*')
+    const {data:l}=await supabase.from('access_logs').select('*').order('login_time',{ascending:false}).limit(50)
+    if(u) setUsers(u); if(s) setStudents(s); if(a) setAssignments(a); if(e) setExams(e); if(c) setClasses(c); if(l) setLogs(l)
   }
-  const items = menus[role] || menus.student
+  useEffect(()=>{ loadAll() },[])
+
+  // 1. ADD NEW STUDENT
+  const addStudent = async()=>{
+    if(!studForm.admission_number) return alert("Admission No required")
+    const {data,error}=await supabase.from('students').insert(studForm).select()
+    if(error) alert(error.message); else { setStudents([...data,...students]); setStudForm({first_name:"",last_name:"",admission_number:"",class_id:""}); alert("Student added!") }
+  }
+
+  // 2. ADD NEW ASSIGNMENT + FILE UPLOAD
+  const addAssignment = async()=>{
+    if(!assignForm.title ||!assignForm.due_date) return alert("Title & Due date required")
+    let fileUrl = null
+    if(assignForm.file){
+      setUploadProgress("Uploading file...")
+      const path = `${Date.now()}_${assignForm.file.name}`
+      const {error:upErr}=await supabase.storage.from('mars-files').upload(path, assignForm.file)
+      if(upErr){ alert("Upload failed: "+upErr.message); setUploadProgress(""); return }
+      const {data}=supabase.storage.from('mars-files').getPublicUrl(path)
+      fileUrl = data.publicUrl
+      await supabase.from('files').insert({name:assignForm.file.name, url:fileUrl, size:(assignForm.file.size/1024/1024).toFixed(2)+"MB"})
+      setUploadProgress("Uploaded!")
+    }
+    const {data,error}=await supabase.from('assignments').insert({
+      title:assignForm.title, course:assignForm.course, due_date:assignForm.due_date, max_marks:assignForm.max_marks, attachment_url: fileUrl
+    }).select()
+    if(error) alert(error.message); else { setAssignments([...data,...assignments]); setAssignForm({title:"",course:"General",due_date:"",max_marks:100,file:null}); setUploadProgress(""); alert("Assignment published with file!") }
+  }
+
+  // 3. ADD NEW EXAM
+  const addExam = async()=>{
+    if(!examForm.name) return alert("Exam name required")
+    const {data,error}=await supabase.from('exams').insert(examForm).select()
+    if(error) alert(error.message); else { setExams([...data,...exams]); setExamForm({name:"",exam_type:"Term Test"}); alert("Exam created!") }
+  }
+
+  // 4. ADMIN PRIVILEGES - Delete/Add Faculty/Students
+  const deleteUser = async(id, email)=>{
+    if(!confirm(`Delete ${email}? This cannot be undone.`)) return
+    await supabase.from('profiles').delete().eq('id',id)
+    setUsers(users.filter(u=>u.id!==id))
+  }
+  const changeRole = async(id, newRole)=>{
+    const {error}=await supabase.from('profiles').update({role:newRole}).eq('id',id)
+    if(!error){ setUsers(users.map(u=>u.id===id?{...u,role:newRole}:u)); alert(`Role changed to ${newRole}`) }
+  }
+  const toggleBlock = async(u)=>{
+    const {error}=await supabase.from('profiles').update({is_active:!u.is_active}).eq('id',u.id)
+    if(!error) setUsers(users.map(x=>x.id===u.id?{...x,is_active:!x.is_active}:x))
+  }
+
   return (
-    <div className="w-full md:w-64 bg-zinc-900 border-r border-orange-500/20 p-4 md:min-h-screen">
-      <h1 className="text-xl font-bold mb-6"><span className="text-orange-500">MARS</span> e-School</h1>
-      <div className="space-y-1">
-        {items.map(i=>(
-          <button key={i} onClick={()=>setActive(i)} className={`w-full text-left px-3 py-2 rounded-lg text-sm ${active===i?'bg-orange-600 text-white':'text-zinc-400 hover:bg-zinc-800'}`}>{i} {i==="Announcements" && unread>0 && <span className="bg-red-500 text-white px-1.5 rounded-full text-xs ml-2">{unread}</span>}</button>
+    <div className="space-y-6">
+      {/* STATS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Total Registered</p><p className="text-3xl font-bold">{users.length}</p></div>
+        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Students</p><p className="text-3xl font-bold">{users.filter(u=>u.role==='student').length}</p></div>
+        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Faculty/Teachers</p><p className="text-3xl font-bold">{users.filter(u=>u.role==='teacher'||u.role==='faculty').length}</p></div>
+        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Active Today</p><p className="text-3xl font-bold text-green-400">{logs.length}</p></div>
+      </div>
+
+      {/* TABS */}
+      <div className="flex gap-2 overflow-auto">
+        {["overview","users","add-student","add-assignment","add-exam","logs"].map(t=>(
+          <button key={t} onClick={()=>setTab(t)} className={`px-4 py-2 rounded-full text-sm whitespace-nowrap ${tab===t?'bg-orange-600':'bg-zinc-800'}`}>{t.toUpperCase()}</button>
         ))}
       </div>
-      <button onClick={onLogout} className="mt-8 w-full bg-zinc-800 py-2 rounded text-sm">Logout • {role}</button>
-    </div>
-  )
-}
 
-// --- DASHBOARD ANALYTICS ---
-function Dashboard({ stats }){
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Total Students</p><p className="text-3xl font-bold">{stats.students}</p><p className="text-xs text-green-400 mt-1">+12 this term</p></div>
-        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Teachers</p><p className="text-3xl font-bold">{stats.teachers}</p></div>
-        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Attendance Today</p><p className="text-3xl font-bold">{stats.attendance}%</p><div className="w-full bg-zinc-800 h-1.5 rounded mt-2"><div className="bg-orange-500 h-1.5 rounded" style={{width:`${stats.attendance}%`}}></div></div></div>
-        <div className="bg-zinc-900 p-5 rounded-2xl border border-orange-500/20"><p className="text-zinc-500 text-xs">Fees Collected</p><p className="text-2xl font-bold">${stats.collected}</p><p className="text-xs text-zinc-500">Outstanding: ${stats.outstanding}</p></div>
-      </div>
-      <div className="grid lg:grid-cols-2 gap-6">
+      {/* OVERVIEW */}
+      {tab==="overview" && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="bg-zinc-900 p-6 rounded-2xl">
+            <h3 className="font-bold mb-3">Quick Add</h3>
+            <div className="grid gap-2">
+              <button onClick={()=>setTab("add-student")} className="bg-orange-600/20 border border-orange-500/30 p-3 rounded-lg text-left">+ Add New Student</button>
+              <button onClick={()=>setTab("add-assignment")} className="bg-orange-600/20 border border-orange-500/30 p-3 rounded-lg text-left">+ Add New Assignment (with File Upload)</button>
+              <button onClick={()=>setTab("add-exam")} className="bg-orange-600/20 border border-orange-500/30 p-3 rounded-lg text-left">+ Add New Exam</button>
+              <button onClick={()=>setTab("users")} className="bg-zinc-800 p-3 rounded-lg text-left">Manage Users (Delete / Make Faculty)</button>
+            </div>
+          </div>
+          <div className="bg-zinc-900 p-6 rounded-2xl">
+            <h3 className="font-bold mb-3">Recent Assignments</h3>
+            {assignments.slice(0,5).map(a=><div key={a.id} className="py-2 border-b border-zinc-800 text-sm flex justify-between"><span>{a.title} • {a.course}</span><span className="text-zinc-500">{new Date(a.due_date).toLocaleDateString()}</span></div>)}
+          </div>
+        </div>
+      )}
+
+      {/* USERS - REGISTERED THROUGH CREATE ACCOUNT */}
+      {tab==="users" && (
+        <div className="bg-zinc-900 p-6 rounded-2xl overflow-auto">
+          <h3 className="font-bold mb-2">All Users Registered via "Create New Account" ({users.length})</h3>
+          <p className="text-xs text-zinc-500 mb-4">Here you can grant admin privileges, make faculty, block or delete.</p>
+          <table className="w-full text-sm min-w-[800px]">
+            <thead className="text-zinc-500"><tr><th className="text-left p-2">Email</th><th>Name</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {users.map(u=>(
+                <tr key={u.id} className="border-t border-zinc-800">
+                  <td className="p-2">{u.email}</td><td>{u.full_name}</td>
+                  <td>
+                    <select value={u.role} onChange={e=>changeRole(u.id, e.target.value)} className="bg-zinc-800 p-1 rounded text-xs">
+                      <option value="student">Student</option><option value="teacher">Teacher/Faculty</option><option value="parent">Parent</option><option value="finance">Finance</option><option value="registrar">Registrar</option><option value="school_admin">School Admin</option><option value="super_admin">Super Admin</option>
+                    </select>
+                  </td>
+                  <td><span className={`px-2 py-1 rounded text-xs ${u.is_active===false?'bg-red-600/20 text-red-400':'bg-green-600/20 text-green-400'}`}>{u.is_active===false?'Blocked':'Active'}</span></td>
+                  <td className="flex gap-1 p-2">
+                    <button onClick={()=>toggleBlock(u)} className="bg-zinc-700 px-2 py-1 rounded text-xs">{u.is_active===false?'Unblock':'Block'}</button>
+                    <button onClick={()=>changeRole(u.id, 'teacher')} className="bg-blue-600 px-2 py-1 rounded text-xs">Make Faculty</button>
+                    <button onClick={()=>deleteUser(u.id, u.email)} className="bg-red-600 px-2 py-1 rounded text-xs">Delete</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ADD STUDENT */}
+      {tab==="add-student" && (
         <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20">
-          <h3 className="font-bold mb-3">Students by Class</h3>
-          {stats.byClass?.map(c=><div key={c.name} className="flex justify-between py-2 text-sm border-b border-zinc-800"><span>{c.name}</span><span className="text-orange-400">{c.count}</span></div>)}
+          <h3 className="font-bold mb-4">Add New Student</h3>
+          <div className="grid md:grid-cols-3 gap-3">
+            <input value={studForm.first_name} onChange={e=>setStudForm({...studForm,first_name:e.target.value})} placeholder="First Name" className="bg-zinc-800 p-3 rounded"/>
+            <input value={studForm.last_name} onChange={e=>setStudForm({...studForm,last_name:e.target.value})} placeholder="Last Name" className="bg-zinc-800 p-3 rounded"/>
+            <input value={studForm.admission_number} onChange={e=>setStudForm({...studForm,admission_number:e.target.value})} placeholder="Admission No e.g MARS2026/001" className="bg-zinc-800 p-3 rounded"/>
+            <select value={studForm.class_id} onChange={e=>setStudForm({...studForm,class_id:e.target.value})} className="bg-zinc-800 p-3 rounded"><option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+            <button onClick={addStudent} className="bg-orange-600 rounded font-bold p-3 md:col-span-2">Create Student</button>
+          </div>
+          <div className="mt-6"><h4 className="text-sm text-zinc-500 mb-2">Recently Added ({students.length})</h4>{students.slice(0,10).map(s=><div key={s.id} className="text-sm py-1 border-b border-zinc-800">{s.admission_number} - {s.first_name} {s.last_name} - {s.classes?.name}</div>)}</div>
         </div>
+      )}
+
+      {/* ADD ASSIGNMENT WITH FILE UPLOAD */}
+      {tab==="add-assignment" && (
+        <div className="bg-zinc-900 p-6 rounded-2xl border-2 border-dashed border-orange-500/30">
+          <h3 className="font-bold mb-4">Add New Assignment + File Upload</h3>
+          <div className="space-y-3">
+            <div className="grid md:grid-cols-2 gap-3">
+              <input value={assignForm.title} onChange={e=>setAssignForm({...assignForm,title:e.target.value})} placeholder="Title e.g Mars Atmosphere Analysis" className="bg-zinc-800 p-3 rounded"/>
+              <input value={assignForm.course} onChange={e=>setAssignForm({...assignForm,course:e.target.value})} placeholder="Course e.g PHYS 220" className="bg-zinc-800 p-3 rounded"/>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <input type="datetime-local" value={assignForm.due_date} onChange={e=>setAssignForm({...assignForm,due_date:e.target.value})} className="bg-zinc-800 p-3 rounded"/>
+              <input type="number" value={assignForm.max_marks} onChange={e=>setAssignForm({...assignForm,max_marks:Number(e.target.value)})} placeholder="Max Marks 100" className="bg-zinc-800 p-3 rounded"/>
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400">Upload File (PDF, ZIP, Video up to 50MB) - Students can download</label>
+              <input type="file" onChange={e=>setAssignForm({...assignForm,file:e.target.files[0]})} className="block w-full mt-2 text-sm file:mr-4 file:py-2 file:px-4 file:rounded file:bg-orange-600 file:text-white bg-zinc-800 p-2 rounded"/>
+              {uploadProgress && <p className="text-xs text-orange-400 mt-1">{uploadProgress}</p>}
+            </div>
+            <button onClick={addAssignment} className="w-full bg-orange-600 py-3 rounded-lg font-bold">Publish Assignment with File</button>
+          </div>
+          <div className="mt-6"><h4 className="text-sm text-zinc-500 mb-2">Existing Assignments</h4>{assignments.map(a=><div key={a.id} className="flex justify-between py-2 text-sm border-b border-zinc-800"><span>{a.title} - {a.course}</span>{a.attachment_url && <a href={a.attachment_url} target="_blank" className="text-orange-400 underline">View File</a>}</div>)}</div>
+        </div>
+      )}
+
+      {/* ADD EXAM */}
+      {tab==="add-exam" && (
         <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20">
-          <h3 className="font-bold mb-3">Recent Activity (Audit Log)</h3>
-          {stats.audit?.slice(0,5).map(a=><div key={a.id} className="text-xs py-2 border-b border-zinc-800"><span className="text-zinc-500">{new Date(a.created_at).toLocaleString()}</span> - {a.action}</div>)}
+          <h3 className="font-bold mb-4">Add New Exam</h3>
+          <div className="flex gap-3">
+            <input value={examForm.name} onChange={e=>setExamForm({...examForm,name:e.target.value})} placeholder="e.g Term 3 Final 2026 - Mathematics" className="flex-1 bg-zinc-800 p-3 rounded"/>
+            <select value={examForm.exam_type} onChange={e=>setExamForm({...examForm,exam_type:e.target.value})} className="bg-zinc-800 p-3 rounded"><option>Term Test</option><option>Final Exam</option><option>Quiz</option><option>Assignment</option></select>
+            <button onClick={addExam} className="bg-orange-600 px-6 rounded font-bold">Create Exam</button>
+          </div>
+          <div className="mt-6 grid md:grid-cols-2 gap-2">{exams.map(ex=><div key={ex.id} className="bg-zinc-800 p-3 rounded text-sm flex justify-between"><span>{ex.name} • {ex.exam_type}</span><button onClick={async()=>{await supabase.from('exams').delete().eq('id',ex.id); setExams(exams.filter(x=>x.id!==ex.id))}} className="text-red-400">Delete</button></div>)}</div>
         </div>
-      </div>
-    </div>
-  )
-}
+      )}
 
-// --- STUDENT MANAGEMENT ---
-function StudentsModule(){
-  const [students,setStudents]=useState([]), [classes,setClasses]=useState([])
-  const [form,setForm]=useState({first_name:"",last_name:"",admission_number:"",class_id:"",contact:""})
-
-  useEffect(()=>{
-    supabase.from('students').select('*, classes(name)').order('created_at',{ascending:false}).then(({data})=>setStudents(data||[]))
-    supabase.from('classes').select('*').then(({data})=>setClasses(data||[]))
-  },[])
-
-  const createStudent = async()=>{
-    if(!form.admission_number ||!form.first_name) return alert("Fill required")
-    const {data, error} = await supabase.from('students').insert(form).select()
-    if(error) alert(error.message); else { setStudents([...data,...students]); setForm({first_name:"",last_name:"",admission_number:"",class_id:"",contact:""}) }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20">
-        <h3 className="font-bold mb-4">Add Student - Full Profile</h3>
-        <div className="grid md:grid-cols-3 gap-3">
-          <input value={form.first_name} onChange={e=>setForm({...form,first_name:e.target.value})} placeholder="First Name" className="bg-zinc-800 p-3 rounded"/>
-          <input value={form.last_name} onChange={e=>setForm({...form,last_name:e.target.value})} placeholder="Last Name" className="bg-zinc-800 p-3 rounded"/>
-          <input value={form.admission_number} onChange={e=>setForm({...form,admission_number:e.target.value})} placeholder="Admission No e.g STU2026/001" className="bg-zinc-800 p-3 rounded"/>
-          <select value={form.class_id} onChange={e=>setForm({...form,class_id:e.target.value})} className="bg-zinc-800 p-3 rounded">
-            <option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <input value={form.contact} onChange={e=>setForm({...form,contact:e.target.value})} placeholder="Parent Contact" className="bg-zinc-800 p-3 rounded"/>
-          <button onClick={createStudent} className="bg-orange-600 rounded font-bold">Add Student</button>
+      {/* LOGS */}
+      {tab==="logs" && (
+        <div className="bg-zinc-900 p-6 rounded-2xl">
+          <h3 className="font-bold mb-4">Who Opened System & When - Live Access Logs</h3>
+          <div className="space-y-2 max-h-[500px] overflow-auto">{logs.map(l=><div key={l.id} className="border-l-2 border-orange-500 pl-4 py-1 text-sm"><b>{new Date(l.login_time).toLocaleString()}</b> — {l.role}: {l.email}<br/><span className="text-xs text-zinc-500">{l.device?.slice(0,100)}</span></div>)}</div>
         </div>
-      </div>
-      <div className="bg-zinc-900 p-6 rounded-2xl overflow-auto">
-        <h3 className="font-bold mb-4">Student Register ({students.length})</h3>
-        <table className="w-full text-sm min-w-[700px]">
-          <thead className="text-zinc-500"><tr><th className="text-left p-2">Adm No</th><th className="text-left">Name</th><th>Class</th><th>Contact</th><th>Status</th></tr></thead>
-          <tbody>{students.map(s=><tr key={s.id} className="border-t border-zinc-800"><td className="p-2">{s.admission_number}</td><td>{s.first_name} {s.last_name}</td><td>{s.classes?.name || '-'}</td><td>{s.contact}</td><td><span className="bg-green-600/20 text-green-400 px-2 py-1 rounded text-xs">{s.status}</span></td></tr>)}</tbody>
-        </table>
-      </div>
+      )}
     </div>
   )
 }
 
-// --- ATTENDANCE MARKING ---
-function AttendanceModule(){
-  const [students,setStudents]=useState([]), [classes,setClasses]=useState([]), [classId,setClassId]=useState("")
-  const [date,setDate]=useState(new Date().toISOString().slice(0,10))
-  useEffect(()=>{ supabase.from('classes').select('*').then(({data})=>setClasses(data||[])) },[])
-  useEffect(()=>{
-    if(!classId) return
-    supabase.from('students').select('*').eq('class_id',classId).then(({data})=>setStudents(data?.map(s=>({...s, status:'present'}))||[]))
-  },[classId])
-
-  const mark = (id,status)=> setStudents(students.map(s=>s.id===id?{...s,status}:s))
-  const save = async()=>{
-    const rows = students.map(s=>({student_id:s.id, class_id:classId, date, status:s.status}))
-    const {error} = await supabase.from('attendance').insert(rows)
-    if(error) alert(error.message); else alert(`Attendance saved for ${rows.length} students - ${date}`)
-  }
-
-  return (
-    <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20">
-      <h3 className="font-bold mb-4">Attendance - {date}</h3>
-      <div className="flex gap-3 mb-4">
-        <select value={classId} onChange={e=>setClassId(e.target.value)} className="bg-zinc-800 p-3 rounded"><option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
-        <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="bg-zinc-800 p-3 rounded"/>
-        <button onClick={save} className="bg-orange-600 px-6 rounded font-bold">Save Attendance</button>
-      </div>
-      <div className="space-y-2">{students.map(s=><div key={s.id} className="flex justify-between items-center bg-zinc-800 p-3 rounded"><span>{s.first_name} {s.last_name} • {s.admission_number}</span><div className="flex gap-2">{['present','absent','late','excused'].map(st=><button key={st} onClick={()=>mark(s.id,st)} className={`px-3 py-1 rounded text-xs ${s.status===st?'bg-orange-600':'bg-zinc-700'}`}>{st}</button>)}</div></div>)}</div>
-    </div>
-  )
-}
-
-// --- FEES ---
-function FeesModule(){
-  const [invoices,setInvoices]=useState([]), [students,setStudents]=useState([])
-  useEffect(()=>{
-    supabase.from('invoices').select('*, students(first_name,last_name,admission_number)').order('created_at',{ascending:false}).then(({data})=>setInvoices(data||[]))
-    supabase.from('students').select('id,first_name,last_name').then(({data})=>setStudents(data||[]))
-  },[])
-
-  const [form,setForm]=useState({student_id:"",total_amount:""})
-  const createInvoice = async()=>{
-    const {data,error}=await supabase.from('invoices').insert({student_id:form.student_id,total_amount:Number(form.total_amount)}).select()
-    if(error) alert(error.message); else setInvoices([...data,...invoices])
-  }
-  const pay = async(inv, amount)=>{
-    const {error}=await supabase.from('payments').insert({invoice_id:inv.id, amount:Number(amount), payment_method:'cash', receipt_number:'RCP'+Date.now()})
-    if(!error){ await supabase.from('invoices').update({paid_amount: inv.paid_amount + Number(amount)}).eq('id',inv.id); alert("Payment recorded - Receipt generated") }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="bg-zinc-900 p-6 rounded-2xl"><h3 className="font-bold">Create Invoice</h3><div className="mt-3 space-y-2"><select value={form.student_id} onChange={e=>setForm({...form,student_id:e.target.value})} className="w-full bg-zinc-800 p-3 rounded"><option value="">Student</option>{students.map(s=><option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}</select><input value={form.total_amount} onChange={e=>setForm({...form,total_amount:e.target.value})} placeholder="Amount e.g 600" className="w-full bg-zinc-800 p-3 rounded"/><button onClick={createInvoice} className="w-full bg-orange-600 py-2 rounded font-bold">Create Invoice</button></div></div>
-        <div className="lg:col-span-2 bg-zinc-900 p-6 rounded-2xl">
-          <h3 className="font-bold mb-3">Invoices - Balance Auto-Calculated</h3>
-          {invoices.map(inv=><div key={inv.id} className="flex justify-between py-3 border-b border-zinc-800 text-sm"><span>{inv.students?.first_name} • ${inv.total_amount} • Paid ${inv.paid_amount} • <b className="text-orange-400">Bal ${inv.balance}</b></span><button onClick={()=>{const a=prompt("Enter amount paid"); if(a) pay(inv,a)}} className="bg-zinc-800 px-3 py-1 rounded">Record Payment</button></div>)}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// --- EXAMS ---
-function ExamsModule(){
-  const [exams,setExams]=useState([]), [results,setResults]=useState([])
-  useEffect(()=>{ supabase.from('exams').select('*').then(({data})=>setExams(data||[])); supabase.from('exam_results').select('*, students(first_name,last_name), subjects(name)').then(({data})=>setResults(data||[])) },[])
-  const [form,setForm]=useState({name:"",exam_type:"Term Test"})
-  const createExam=async()=>{ const {data}=await supabase.from('exams').insert(form).select(); if(data) setExams([...data,...exams]) }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20">
-        <h3 className="font-bold mb-3">Create Exam + Auto-Grading</h3>
-        <div className="flex gap-3"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g Term 3 Final 2026" className="flex-1 bg-zinc-800 p-3 rounded"/><button onClick={createExam} className="bg-orange-600 px-6 rounded font-bold">Create</button></div>
-        <div className="mt-4 grid md:grid-cols-3 gap-2 text-xs">{exams.map(ex=><div key={ex.id} className="bg-zinc-800 p-3 rounded">{ex.name} • {ex.exam_type} • {ex.is_published?'Published':'Draft'}</div>)}</div>
-      </div>
-      <div className="bg-zinc-900 p-6 rounded-2xl">
-        <h3 className="font-bold mb-3">Results - Auto Average & Grade</h3>
-        <table className="w-full text-sm"><thead className="text-zinc-500"><tr><th className="text-left">Student</th><th>Subject</th><th>Marks</th><th>Grade</th></tr></thead><tbody>{results.map(r=><tr key={r.id} className="border-t border-zinc-800"><td>{r.students?.first_name} {r.students?.last_name}</td><td>{r.subjects?.name}</td><td>{r.marks}</td><td>{r.marks>=80?'A':r.marks>=60?'B':r.marks>=50?'C':'F'}</td></tr>)}</tbody></table>
-      </div>
-    </div>
-  )
-}
-
-// --- ORIGINAL DASHES (kept) ---
-function StudentDash({ assignments }){
-  return (
-    <div className="grid lg:grid-cols-3 gap-6">
-      <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20"><h3 className="text-orange-400 font-bold">My Courses</h3><div className="mt-4 space-y-4"><div><p>PHYS 220 • Physics of Mars</p><div className="w-full bg-zinc-800 h-2 rounded mt-1"><div className="bg-orange-500 h-2 w-[67%] rounded"></div></div></div></div></div>
-      <div className="bg-zinc-900 p-6 rounded-2xl border border-orange-500/20"><h3 className="font-bold">School Fees Balance</h3><p className="text-4xl font-bold mt-2">$1,250.00</p><p className="text-xs text-zinc-400">Outstanding • Due: 30 Oct 2026</p></div>
-      <div className="lg:col-span-3 bg-zinc-900 p-6 rounded-2xl border border-orange-500/20"><h3 className="font-bold mb-3">Assignments - Time Sensitive</h3>{assignments.map(a=><div key={a.id} className="flex justify-between py-3 border-b border-zinc-800 text-sm"><span>{a.title}</span><span><Countdown due={a.due_date}/></span></div>)}</div>
-    </div>
-  )
-}
-function FacultyDash({ assignments, setAssignments }){
-  const [title,setTitle]=useState(""), [due,setDue]=useState("")
-  const addAssignment=async()=>{
-    if(!title||!due) return alert("Fill all")
-    const {data} = await supabase.from('assignments').insert({title, course:"PHYS 220", due_date:due, max_marks:100}).select()
-    if(data) setAssignments([...assignments,...data]); setTitle(""); setDue("")
-  }
-  return (
-    <div className="space-y-6">
-      <div className="bg-zinc-900 p-6 rounded-2xl"><h2 className="text-xl font-bold mb-4">Create Assignment</h2><div className="flex gap-3"><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Title" className="flex-1 bg-zinc-800 p-3 rounded"/><input type="datetime-local" value={due} onChange={e=>setDue(e.target.value)} className="bg-zinc-800 p-3 rounded"/><button onClick={addAssignment} className="bg-orange-600 px-6 rounded font-bold">Publish</button></div></div>
-    </div>
-  )
-}
-
-// --- MAIN APP ---
-export default function App(){
+// --- MAIN APP WRAPPER ---
+export default function AppWrapper(){
   const [user,setUser]=useState(null), [profile,setProfile]=useState(null)
-  const [assignments,setAssignments]=useState([]), [active,setActive]=useState("Dashboard")
-  const [stats,setStats]=useState({students:0,teachers:0,attendance:94.2,collected:0,outstanding:0,byClass:[],audit:[]})
-  const [unread,setUnread]=useState(0)
-
   useEffect(()=>{
     supabase.auth.getSession().then(({data})=>{ if(data.session) setUser(data.session.user) })
-    supabase.auth.onAuthStateChange((e,session)=>{ if(session?.user){ setUser(session.user); logAccess(session.user) } else { setUser(null); setProfile(null) } })
-    supabase.from('assignments').select('*').order('due_date').then(({data})=>{ if(data) setAssignments(data) })
+    supabase.auth.onAuthStateChange((e,s)=>{ if(s?.user){ setUser(s.user); logAccess(s.user) } else { setUser(null); setProfile(null) } })
   },[])
-
   useEffect(()=>{
     if(!user) return
     supabase.from('profiles').select('*').eq('id',user.id).single().then(({data})=>{
-      if(data){ setProfile(data); setActive("Dashboard") }
-      else {
-        const role = user.user_metadata?.role || 'student'
-        supabase.from('profiles').insert({id:user.id,email:user.email,role,full_name:user.user_metadata?.full_name}).then(()=>setProfile({role}))
-      }
+      if(!data){
+        const role=user.user_metadata?.role||'student'
+        supabase.from('profiles').insert({id:user.id,email:user.email,role,full_name:user.user_metadata?.full_name||user.email}).then(()=>setProfile({role}))
+      } else setProfile(data)
     })
-    // load stats
-    const loadStats = async()=>{
-      const [{count:sc},{count:tc}, {data:inv}, {data:aud}] = await Promise.all([
-        supabase.from('students').select('*',{count:'exact',head:true}),
-        supabase.from('profiles').select('*',{count:'exact',head:true}).eq('role','teacher'),
-        supabase.from('invoices').select('total_amount,paid_amount'),
-        supabase.from('audit_logs').select('*').order('created_at',{ascending:false}).limit(10)
-      ])
-      const collected = inv?.reduce((s,i)=>s+Number(i.paid_amount),0)||0
-      const total = inv?.reduce((s,i)=>s+Number(i.total_amount),0)||0
-      const {data:cls}=await supabase.from('classes').select('id,name')
-      let byClass=[]
-      if(cls){ for(let c of cls){ const {count}=await supabase.from('students').select('*',{count:'exact',head:true}).eq('class_id',c.id); byClass.push({name:c.name,count:count||0}) } }
-      setStats({students:sc||0,teachers:tc||0,attendance:94.2,collected, outstanding: total-collected, byClass, audit:aud||[]})
-    }
-    loadStats()
   },[user])
 
   const handleLogin=async(e)=>{
     e.preventDefault()
-    const {data,error}=await supabase.auth.signInWithPassword({email:e.target.email.value, password:e.target.password.value})
+    const {error}=await supabase.auth.signInWithPassword({email:e.target.email.value,password:e.target.password.value})
     if(error) alert(error.message)
   }
   const handleSignup=async(e)=>{
     e.preventDefault()
-    const email=e.target.email.value, password=e.target.password.value, full_name=e.target.fullname.value, role=e.target.role.value
-    const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name, role}}})
-    if(error){ alert(error.message); return }
-    alert("Account created! Login now. If it says confirm email, go to Supabase -> Auth -> Providers -> Email -> OFF Confirm Email")
+    const {data,error}=await supabase.auth.signUp({email:e.target.email.value,password:e.target.password.value,options:{data:{full_name:e.target.fullname.value,role:e.target.role.value}}})
+    if(error) alert(error.message); else alert("Created! Now login. If email confirm error, turn off Confirm Email in Supabase Auth settings.")
   }
 
   if(!user){
@@ -299,7 +254,7 @@ export default function App(){
               <input name="fullname" placeholder="Full Name" className="w-full bg-zinc-800 p-2 rounded" required/>
               <input name="email" placeholder="Email" className="w-full bg-zinc-800 p-2 rounded" required/>
               <input name="password" type="password" placeholder="Password" className="w-full bg-zinc-800 p-2 rounded" required/>
-              <select name="role" className="w-full bg-zinc-800 p-2 rounded"><option value="student">Student</option><option value="teacher">Teacher</option><option value="parent">Parent</option><option value="school_admin">School Admin</option><option value="finance">Finance</option><option value="registrar">Registrar</option><option value="super_admin">Super Admin</option></select>
+              <select name="role" className="w-full bg-zinc-800 p-2 rounded"><option value="student">Student</option><option value="teacher">Teacher/Faculty</option><option value="parent">Parent</option><option value="school_admin">School Admin</option><option value="super_admin">Super Admin</option></select>
               <button className="w-full bg-zinc-700 p-2 rounded mt-2">Sign Up</button>
             </form>
           </details>
@@ -309,25 +264,15 @@ export default function App(){
   }
 
   const role = profile?.role || user.user_metadata?.role || 'student'
-
-  const renderModule = ()=>{
-    if(active==="Dashboard") return <Dashboard stats={stats}/>
-    if(active==="Students" || active==="My Children") return <StudentsModule/>
-    if(active==="Attendance") return <AttendanceModule/>
-    if(active==="Fees" || active==="Invoices") return <FeesModule/>
-    if(active==="Exams" || active==="My Results" || active==="Results") return <ExamsModule/>
-    if(active==="Assignments" || active==="My Assignments") return <StudentDash assignments={assignments}/>
-    if(role==='teacher' || role==='faculty') return <FacultyDash assignments={assignments} setAssignments={setAssignments}/>
-    return <Dashboard stats={stats}/>
-  }
+  const isAdmin = ['super_admin','school_admin','admin'].includes(role)
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row">
-      <Nav role={role} active={active} setActive={setActive} unread={unread} onLogout={()=>supabase.auth.signOut()}/>
-      <div className="flex-1 p-4 md:p-8 overflow-auto">
-        <header className="flex justify-between mb-6"><h2 className="text-xl font-bold">{active} • {user.email} • {role}</h2></header>
-        {renderModule()}
-      </div>
+    <div className="min-h-screen bg-black text-white p-4 md:p-8">
+      <header className="flex justify-between items-center mb-6">
+        <h1 className="text-xl font-bold"><span className="text-orange-500">MARS</span> • {user.email} • {role.toUpperCase()}</h1>
+        <button onClick={()=>supabase.auth.signOut()} className="bg-zinc-800 px-4 py-2 rounded">Logout</button>
+      </header>
+      {isAdmin? <AdminDash/> : <div className="bg-zinc-900 p-8 rounded-2xl text-center"><h2 className="text-xl font-bold">Welcome {role}</h2><p className="text-zinc-400 mt-2">Admin will manage your access. Contact super_admin to get faculty privileges.</p></div>}
     </div>
   )
 }
