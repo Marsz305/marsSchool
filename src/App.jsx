@@ -1,8 +1,101 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import * as XLSX from 'xlsx'
+
 const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY)
 
-function AdminDash(){
+function AppWrapper(){
+  const [user,setUser]=useState(null)
+  const [profile,setProfile]=useState(null)
+  const [loading,setLoading]=useState(true)
+  const [mode,setMode]=useState("login")
+  const [form,setForm]=useState({email:"",password:"",full_name:"",role:"student"})
+
+  useEffect(()=>{
+    supabase.auth.getSession().then(({data})=>{
+      setUser(data.session?.user||null)
+      if(data.session?.user) fetchProfile(data.session.user.id)
+      else setLoading(false)
+    })
+    const {data:listener}=supabase.auth.onAuthStateChange((_e,session)=>{
+      setUser(session?.user||null)
+      if(session?.user) fetchProfile(session.user.id)
+      else { setProfile(null); setLoading(false)}
+    })
+    return ()=>listener.subscription.unsubscribe()
+  },[])
+
+  const fetchProfile=async(uid)=>{
+    const {data}=await supabase.from('users').select('*').eq('id',uid).single()
+    setProfile(data||null); setLoading(false)
+  }
+
+  const handleAuth=async(e)=>{
+    e.preventDefault()
+    if(mode==="signup"){
+      const {data,error}=await supabase.auth.signUp({email:form.email,password:form.password})
+      if(error) return alert(error.message)
+      if(data.user){
+        await supabase.from('users').insert({id:data.user.id,email:form.email,full_name:form.full_name,role:form.role,is_active:false})
+        alert("Account created! Wait for Admin approval.")
+        setMode("login")
+      }
+    } else {
+      const {data,error}=await supabase.auth.signInWithPassword({email:form.email,password:form.password})
+      if(error) return alert(error.message)
+      const {data:prof}=await supabase.from('users').select('*').eq('id',data.user.id).single()
+      if(prof &&!prof.is_active) { alert("Account pending approval"); await supabase.auth.signOut(); return}
+      setUser(data.user); setProfile(prof)
+    }
+  }
+
+  const logout=async()=>{ await supabase.auth.signOut(); setUser(null); setProfile(null) }
+
+  if(loading) return <div className="min-h-screen bg-[#080808] flex items-center justify-center text-white">Loading MARS...</div>
+  if(!user) return <AuthPage mode={mode} setMode={setMode} form={form} setForm={setForm} onSubmit={handleAuth} />
+
+  const role=(profile?.role||'').toLowerCase().trim()
+  return (
+    <div className="min-h-screen bg-[#080808] text-white">
+      <header className="sticky top-0 z-50 bg-black/80 backdrop-blur border-b border-white/10 px-4 py-3 flex justify-between items-center">
+        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black">M</div><span className="font-black">MARS</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2">{profile?.role}</span></div>
+        <div className="flex items-center gap-2"><span className="text-xs text-zinc-400 hidden sm:block truncate max-w-[150px]">{profile?.email}</span><button onClick={logout} className="bg-zinc-800 px-3 py-1.5 rounded-full text-xs">Logout</button></div>
+      </header>
+      <main className="p-3 md:p-6">
+        {role==='super_admin' || role==='school_admin' || role==='admin'? <AdminDash profile={profile} /> : null}
+        {role==='faculty' || role==='teacher'? <FacultyDash profile={profile} /> : null}
+        {role==='student'? <StudentDash profile={profile} /> : null}
+        {role==='parent'? <ParentDash profile={profile} /> : null}
+        {!['super_admin','school_admin','admin','faculty','teacher','student','parent'].includes(role) && <div className="text-center py-20">Unknown role: {profile?.role}</div>}
+      </main>
+    </div>
+  )
+}
+
+function AuthPage({mode,setMode,form,setForm,onSubmit}){
+  return (
+    <div className="min-h-screen bg-[#080808] flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-white/10 p-6 md:p-8 rounded-[24px] w-full max-w-[400px]">
+        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School</p><p className="text-[10px] text-zinc-500">Modern Learning OS</p></div></div>
+        <h2 className="text-2xl font-black text-white mb-2">{mode==="login"?"Welcome Back":"Create Account"}</h2>
+        <form onSubmit={onSubmit} className="space-y-3 mt-4">
+          <input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="Email" type="email" required className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/>
+          <input value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Password" type="password" required className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/>
+          {mode==="signup" && <>
+            <input value={form.full_name} onChange={e=>setForm({...form,full_name:e.target.value})} placeholder="Full Name" required className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/>
+            <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white">
+              <option value="student">Student</option><option value="faculty">Faculty / Teacher</option><option value="parent">Parent</option>
+            </select>
+          </>}
+          <button type="submit" className="w-full bg-orange-600 py-3.5 rounded-2xl font-black text-white">{mode==="login"?"Login":"Sign Up"}</button>
+        </form>
+        <p className="text-center text-sm text-zinc-400 mt-4">{mode==="login"?"No account?":"Have account?"} <button onClick={()=>setMode(mode==="login"?"signup":"login")} className="text-orange-400 font-bold">{mode==="login"?"Sign Up":"Login"}</button></p>
+      </div>
+    </div>
+  )
+}
+
+function AdminDash({profile}){
   const [users,setUsers]=useState([]); const [classes,setClasses]=useState([]); const [assignments,setAssignments]=useState([])
   const [tab,setTab]=useState("assignments")
   const [classForm,setClassForm]=useState({name:"",faculty_id:""})
@@ -15,162 +108,64 @@ function AdminDash(){
     try{ const {data:a}=await supabase.from('assignments').select('*').order('created_at',{ascending:false}); if(a){ setAssignments(a); const {data:subs}=await supabase.from('submissions').select('assignment_id'); const m={}; subs?.forEach(s=>m[s.assignment_id]=(m[s.assignment_id]||0)+1); setSubCount(m)} }catch{}
   }
   useEffect(()=>{load()},[])
-  const facultyList = users.filter(u=> ['faculty','teacher'].includes((u.role||'').toLowerCase().trim()))
-  const pending = users.filter(u=>!u.is_active)
-  const deleteAssign = async(id)=>{
-    if(!confirm("Delete assignment? This will also delete all student submissions for it!")) return;
-    const {error}=await supabase.from('assignments').delete().eq('id',id);
-    if(error) alert(error.message); else load();
+  const exportUsers=()=>{
+    const rows=users.map(u=>({Email:u.email,Name:u.full_name,Role:u.role,Class:classes.find(c=>c.id===u.class_id)?.name||'No Class',Status:u.is_active?'Active':'Pending',Joined:new Date(u.created_at).toLocaleDateString()}))
+    const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Users"); XLSX.writeFile(wb,`MARS-Users-${new Date().toISOString().slice(0,10)}.xlsx`)
   }
-  const purgeExpired = async()=>{
-    if(!confirm("Delete ALL assignments past due date?")) return;
-    const now = new Date().toISOString();
-    const {error}=await supabase.from('assignments').delete().lt('due_date', now);
-    if(error) alert(error.message); else { alert("Expired cleaned"); load(); }
+  const exportGrades=async()=>{
+    const {data}=await supabase.from('submissions').select('*, users!inner(email,full_name), assignments!inner(title,course)')
+    if(!data||data.length===0) return alert("No submissions yet")
+    const rows=data.map(s=>({Student:s.users.full_name||s.users.email,Email:s.users.email,Assignment:s.assignments.title,Course:s.assignments.course,Grade:s.grade??'Not graded',Status:s.status,Submitted:new Date(s.submitted_at).toLocaleString(),Feedback:s.feedback||''}))
+    const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Grades"); XLSX.writeFile(wb,`MARS-Grades-${new Date().toISOString().slice(0,10)}.xlsx`)
   }
-  const expiredCount = assignments.filter(a=>a.due_date && new Date(a.due_date) < new Date()).length;
-
+  const exportAssignments=()=>{
+    const rows=assignments.map(a=>({Title:a.title,Course:a.course,Class:classes.find(c=>c.id===a.class_id)?.name||'All Classes',Due:a.due_date?new Date(a.due_date).toLocaleString():'No due',Submissions:subCount[a.id]||0,Expired:a.due_date&&new Date(a.due_date)<new Date()?'Yes':'No'}))
+    const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Assignments"); XLSX.writeFile(wb,`MARS-Assignments-${new Date().toISOString().slice(0,10)}.xlsx`)
+  }
+  const facultyList=users.filter(u=>['faculty','teacher'].includes((u.role||'').toLowerCase().trim()))
+  const pending=users.filter(u=>!u.is_active)
+  const expiredCount=assignments.filter(a=>a.due_date&&new Date(a.due_date)<new Date()).length
   return (
     <div className="space-y-6 max-w-[1300px] mx-auto w-full min-w-0">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
         <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Pending</p><p className="text-3xl font-black text-orange-400">{pending.length}</p></div>
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Students</p><p className="text-3xl font-black">{users.filter(u=> (u.role||'').toLowerCase()==='student' && u.is_active).length}</p></div>
+        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Students</p><p className="text-3xl font-black">{users.filter(u=>(u.role||'').toLowerCase()==='student'&&u.is_active).length}</p></div>
         <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Faculty</p><p className="text-3xl font-black">{facultyList.length}</p></div>
         <div className="bg-zinc-900/70 border border-red-500/20 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Expired</p><p className="text-3xl font-black text-red-400">{expiredCount}</p></div>
       </div>
-
-      {/* FIXED TABS - this was the overflow */}
-      <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full w-full max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide border border-white/10">
-        {[{id:"approvals",l:`Approvals (${pending.length})`},{id:"users",l:"All Users"},{id:"classes",l:"Classes"},{id:"assignments",l:`Assignments (${assignments.length})`}].map(t=>
-          <button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>
-        )}
+      <div className="flex gap-2 flex-wrap w-full">
+        <button onClick={exportUsers} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">📊 Export Users</button>
+        <button onClick={exportGrades} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black">📈 Export Grades</button>
+        <button onClick={exportAssignments} className="bg-zinc-800 text-white border border-white/10 px-4 py-2 rounded-full text-xs font-bold">📄 Export Assignments</button>
       </div>
-
-      {tab==="approvals" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-4 md:p-6 w-full min-w-0"><h3 className="font-black text-lg">New Accounts Waiting</h3><div className="grid gap-3 mt-4">{pending.length===0 && <p className="text-center py-10 text-zinc-500">No pending</p>}{pending.map(u=>(<div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col sm:flex-row justify-between gap-3"><div className="min-w-0"><p className="font-bold truncate">{u.email}</p><p className="text-xs text-zinc-400">{u.full_name} - <span className="text-orange-400 font-bold">{u.role}</span></p></div><div className="flex gap-2 flex-wrap"><select id={`c-${u.id}`} className="bg-zinc-800 border border-white/10 p-2 rounded-xl text-sm text-white flex-1"><option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><button onClick={async()=>{ const cid=document.getElementById(`c-${u.id}`).value||null; await supabase.from('users').update({is_active:true, class_id:cid}).eq('id',u.id); load()}} className="bg-green-600 px-4 py-2 rounded-xl text-sm font-bold">Approve</button><button onClick={async()=>{ await supabase.from('users').delete().eq('id',u.id); load()}} className="bg-zinc-800 px-3 py-2 rounded-xl text-sm">Reject</button></div></div>))}</div></div>)}
-
+      <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full w-full max-w-full overflow-x-auto whitespace-nowrap border border-white/10">
+        {[{id:"approvals",l:`Approvals (${pending.length})`},{id:"users",l:"All Users"},{id:"classes",l:"Classes"},{id:"assignments",l:`Assignments (${assignments.length})`}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>)}
+      </div>
+      {tab==="approvals" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-4 md:p-6 w-full min-w-0"><h3 className="font-black text-lg">New Accounts Waiting</h3><div className="grid gap-3 mt-4">{pending.length===0&&<p className="text-center py-10 text-zinc-500">No pending</p>}{pending.map(u=>(<div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col sm:flex-row justify-between gap-3"><div className="min-w-0"><p className="font-bold truncate">{u.email}</p><p className="text-xs text-zinc-400">{u.full_name} - <span className="text-orange-400 font-bold">{u.role}</span></p></div><div className="flex gap-2 flex-wrap"><select id={`c-${u.id}`} className="bg-zinc-800 border border-white/10 p-2 rounded-xl text-sm text-white flex-1"><option value="">Select Class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><button onClick={async()=>{const cid=document.getElementById(`c-${u.id}`).value||null; await supabase.from('users').update({is_active:true,class_id:cid}).eq('id',u.id); load()}} className="bg-green-600 px-4 py-2 rounded-xl text-sm font-bold">Approve</button><button onClick={async()=>{await supabase.from('users').delete().eq('id',u.id); load()}} className="bg-zinc-800 px-3 py-2 rounded-xl text-sm">Reject</button></div></div>))}</div></div>)}
       {tab==="users" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-2 md:p-6 w-full min-w-0 overflow-hidden"><div className="w-full overflow-x-auto"><table className="w-full text-sm min-w-[900px]"><thead><tr className="text-zinc-500 text-xs uppercase"><th className="text-left p-3">USER</th><th>ROLE</th><th>CLASS</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>{users.map(u=><tr key={u.id} className="border-t border-white/5"><td className="p-3 font-bold">{u.email}<p className="text-xs text-zinc-500">{u.full_name}</p></td><td><select value={(u.role||'').toLowerCase()} onChange={async(e)=>{await supabase.from('users').update({role:e.target.value}).eq('id',u.id); load()}} className="bg-black border border-white/10 p-2 rounded-xl text-xs text-white"><option value="student">student</option><option value="faculty">faculty</option><option value="teacher">teacher</option><option value="school_admin">school_admin</option><option value="super_admin">super_admin</option></select></td><td><select value={u.class_id||''} onChange={async(e)=>{await supabase.from('users').update({class_id:e.target.value||null}).eq('id',u.id); load()}} className="bg-zinc-800 border border-white/10 p-2 rounded-xl text-xs text-white min-w-[160px]"><option value="">- No Class -</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td><td>{u.is_active?<span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full text-xs">Active</span>:<span className="bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full text-xs">Pending</span>}</td><td className="flex gap-1 p-2"><button onClick={async()=>{await supabase.from('users').update({is_active:!u.is_active}).eq('id',u.id); load()}} className="bg-zinc-800 px-3 py-1 rounded-xl text-xs">{u.is_active?'Revoke':'Approve'}</button></td></tr>)}</tbody></table></div></div>)}
-
-      {tab==="classes" && (<div className="grid lg:grid-cols-2 gap-6 w-full min-w-0"><div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px] min-w-0"><h3 className="font-black mb-4">Create Class</h3><input value={classForm.name} onChange={e=>setClassForm({...classForm,name:e.target.value})} placeholder="e.g Form 1A" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white"/><select value={classForm.faculty_id} onChange={e=>setClassForm({...classForm,faculty_id:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white"><option value="">Select Faculty</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select><button onClick={async()=>{ if(!classForm.name) return; await supabase.from('classes').insert({name:classForm.name, faculty_id:classForm.faculty_id||null}); setClassForm({name:"",faculty_id:""}); load()}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">Create Class</button><div className="mt-6 space-y-2">{classes.map(c=><div key={c.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between"><div><p className="font-bold">{c.name}</p><p className="text-xs text-zinc-500">{users.filter(u=>u.class_id===c.id).length} students</p></div><button onClick={async()=>{ if(!confirm('Delete class?')) return; await supabase.from('classes').delete().eq('id',c.id); load()}} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs">Delete</button></div>)}</div></div><div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px] min-w-0"><h3 className="font-black mb-4">Roster</h3>{classes.map(c=><div key={c.id} className="mb-6"><p className="font-bold text-orange-400">{c.name}</p>{users.filter(u=>u.class_id===c.id).map(u=><div key={u.id} className="text-sm bg-black/40 p-2 rounded-xl mt-1 truncate">{u.email} ({u.role})</div>)}</div>)}</div></div>)}
-
-      {tab==="assignments" && (<div className="grid lg:grid-cols-2 gap-6 w-full min-w-0"><div className="bg-zinc-900/70 border border-orange-500/20 p-4 md:p-6 rounded-[24px] h-fit min-w-0"><h3 className="font-black mb-4">Publish Assignment</h3><div className="space-y-3"><input value={assignForm.title} onChange={e=>setAssignForm({...assignForm,title:e.target.value})} placeholder="Title" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><input value={assignForm.course} onChange={e=>setAssignForm({...assignForm,course:e.target.value})} placeholder="Course" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><select value={assignForm.class_id} onChange={e=>setAssignForm({...assignForm,class_id:e.target.value})} className="bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"><option value="">All Classes</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><input type="datetime-local" value={assignForm.due_date} onChange={e=>setAssignForm({...assignForm,due_date:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><input type="file" onChange={e=>setAssignForm({...assignForm,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-xl bg-zinc-800 border border-white/10 p-2 rounded-2xl text-white"/><button disabled={uploading} onClick={async()=>{ if(!assignForm.title||!assignForm.due_date) return alert('Title & Due date needed'); setUploading(true); let url=null; if(assignForm.file){ const path=`${Date.now()}_${assignForm.file.name}`; const {error}=await supabase.storage.from('mars-files').upload(path, assignForm.file); if(error){ alert(error.message); setUploading(false); return;} url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl } const {data:ses}=await supabase.auth.getUser(); const {error}=await supabase.from('assignments').insert({title:assignForm.title,course:assignForm.course,due_date:assignForm.due_date,class_id:assignForm.class_id||null,attachment_url:url, created_by: ses.user.id}); if(error) alert(error.message); setUploading(false); setAssignForm({title:"",course:"",due_date:"",class_id:"",file:null}); load()}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">{uploading?'Publishing...':'Publish'}</button></div></div><div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px] min-w-0"><div className="flex justify-between items-center mb-4 flex-wrap gap-2"><h3 className="font-black">Assignments ({assignments.length})</h3><button onClick={purgeExpired} className="bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-full text-xs font-bold">Delete Expired ({expiredCount})</button></div><div className="space-y-2 max-h-[600px] overflow-auto">{assignments.map(a=>{ const isExpired = a.due_date && new Date(a.due_date) < new Date(); return <div key={a.id} className={`p-3 rounded-xl flex flex-col sm:flex-row justify-between gap-2 border ${isExpired?'bg-red-500/10 border-red-500/20':'bg-black/40 border-white/5'}`}><div className="min-w-0"><p className="font-bold text-sm truncate">{a.title} - {classes.find(c=>c.id===a.class_id)?.name||'All'} <span className="text-orange-400 ml-1 text-xs">{subCount[a.id]?`${subCount[a.id]} subs`:''}</span> {isExpired && <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-[9px] ml-2">EXPIRED</span>}</p><p className="text-[10px] text-zinc-500">Due: {a.due_date? new Date(a.due_date).toLocaleString(): 'No due'}</p></div><div className="flex gap-1 items-center shrink-0">{a.attachment_url && <a href={a.attachment_url} target="_blank" className="text-orange-400 underline text-xs px-2">File</a>}<button onClick={()=>deleteAssign(a.id)} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-bold">Delete</button></div></div>})}</div></div></div>)}
+      {tab==="classes" && (<div className="grid lg:grid-cols-2 gap-6 w-full min-w-0"><div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px] min-w-0"><h3 className="font-black mb-4">Create Class</h3><input value={classForm.name} onChange={e=>setClassForm({...classForm,name:e.target.value})} placeholder="e.g Form 1A" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white"/><select value={classForm.faculty_id} onChange={e=>setClassForm({...classForm,faculty_id:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white"><option value="">Select Faculty</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select><button onClick={async()=>{if(!classForm.name) return; await supabase.from('classes').insert({name:classForm.name,faculty_id:classForm.faculty_id||null}); setClassForm({name:"",faculty_id:""}); load()}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">Create Class</button><div className="mt-6 space-y-2">{classes.map(c=><div key={c.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between"><div><p className="font-bold">{c.name}</p><p className="text-xs text-zinc-500">{users.filter(u=>u.class_id===c.id).length} students</p></div><button onClick={async()=>{if(!confirm('Delete class?'))return; await supabase.from('classes').delete().eq('id',c.id); load()}} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs">Delete</button></div>)}</div></div><div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px] min-w-0"><h3 className="font-black mb-4">Roster</h3>{classes.map(c=><div key={c.id} className="mb-6"><p className="font-bold text-orange-400">{c.name}</p>{users.filter(u=>u.class_id===c.id).map(u=><div key={u.id} className="text-sm bg-black/40 p-2 rounded-xl mt-1 truncate">{u.email} ({u.role})</div>)}</div>)}</div></div>)}
+      {tab==="assignments" && (<div className="grid lg:grid-cols-2 gap-6 w-full min-w-0"><div className="bg-zinc-900/70 border border-orange-500/20 p-4 md:p-6 rounded-[24px] h-fit min-w-0"><h3 className="font-black mb-4">Publish Assignment</h3><div className="space-y-3"><input value={assignForm.title} onChange={e=>setAssignForm({...assignForm,title:e.target.value})} placeholder="Title" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><input value={assignForm.course} onChange={e=>setAssignForm({...assignForm,course:e.target.value})} placeholder="Course" className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><select value={assignForm.class_id} onChange={e=>setAssignForm({...assignForm,class_id:e.target.value})} className="bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"><option value="">All Classes</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><input type="datetime-local" value={assignForm.due_date} onChange={e=>setAssignForm({...assignForm,due_date:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"/><input type="file" onChange={e=>setAssignForm({...assignForm,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-xl bg-zinc-800 border border-white/10 p-2 rounded-2xl text-white"/><button disabled={uploading} onClick={async()=>{if(!assignForm.title||!assignForm.due_date)return alert('Title & Due date needed'); setUploading(true); let url=null; if(assignForm.file){const path=`${Date.now()}_${assignForm.file.name}`; const {error}=await supabase.storage.from('mars-files').upload(path,assignForm.file); if(error){alert(error.message); setUploading(false); return;} url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl} const {data:ses}=await supabase.auth.getUser(); const {error}=await supabase.from('assignments').insert({title:assignForm.title,course:assignForm.course,due_date:assignForm.due_date,class_id:assignForm.class_id||null,attachment_url:url,created_by:ses.user.id}); if(error) alert(error.message); setUploading(false); setAssignForm({title:"",course:"",due_date:"",class_id:"",file:null}); load()}} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black">{uploading?'Publishing...':'Publish'}</button></div></div><div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px] min-w-0"><div className="flex justify-between items-center mb-4 flex-wrap gap-2"><h3 className="font-black">Assignments ({assignments.length})</h3></div><div className="space-y-2 max-h-[600px] overflow-auto">{assignments.map(a=>{const isExpired=a.due_date&&new Date(a.due_date)<new Date(); return <div key={a.id} className={`p-3 rounded-xl flex flex-col sm:flex-row justify-between gap-2 border ${isExpired?'bg-red-500/10 border-red-500/20':'bg-black/40 border-white/5'}`}><div className="min-w-0"><p className="font-bold text-sm truncate">{a.title} - {classes.find(c=>c.id===a.class_id)?.name||'All'} <span className="text-orange-400 ml-1 text-xs">{subCount[a.id]?`${subCount[a.id]} subs`:''}</span></p><p className="text-[10px] text-zinc-500">Due: {a.due_date?new Date(a.due_date).toLocaleString():'No due'}</p></div><div className="flex gap-1 items-center shrink-0">{a.attachment_url&&<a href={a.attachment_url} target="_blank" className="text-orange-400 underline text-xs px-2">File</a>}<button onClick={async()=>{if(!confirm("Delete?"))return; await supabase.from('assignments').delete().eq('id',a.id); load()}} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-bold">Delete</button></div></div>})}</div></div></div>)}
     </div>
   )
 }
 
-// FacultyDash and StudentDash need same wrapper fix: w-full min-w-0 + overflow-x-auto tabs
-function FacultyDash({user, profile}){
-  const [myClasses,setMyClasses]=useState([]); const [students,setStudents]=useState([]); const [assignments,setAssignments]=useState([]);
-  const [form,setForm]=useState({title:"",course:"",due_date:"",class_id:"",file:null})
-  const [tab,setTab]=useState("roster");
-  const [selectedAssign,setSelectedAssign]=useState(null); const [subs,setSubs]=useState([]); const [loadingSubs,setLoadingSubs]=useState(false); const [search,setSearch]=useState("");
-  const load=async()=>{
-    const {data:c}=await supabase.from('classes').select('*').eq('faculty_id',user.id);
-    if(c){ setMyClasses(c); if(c.length &&!form.class_id) setForm(f=>({...f, class_id:c[0].id})); const ids=c.map(x=>x.id); if(ids.length){ const {data:u}=await supabase.from('users').select('*').in('class_id',ids); if(u) setStudents(u); } }
-    const {data:as}=await supabase.from('assignments').select('*').eq('created_by', user.id).order('created_at',{ascending:false}); if(as) setAssignments(as);
+function FacultyDash({profile}){
+  const [classes,setClasses]=useState([]); const [assignments,setAssignments]=useState([]); const [subs,setSubs]=useState([])
+  useEffect(()=>{(async()=>{const {data:c}=await supabase.from('classes').select('*'); if(c) setClasses(c); const {data:a}=await supabase.from('assignments').select('*').order('created_at',{ascending:false}); if(a) setAssignments(a); const {data:s}=await supabase.from('submissions').select('*, users!inner(email,full_name), assignments!inner(title)'); if(s) setSubs(s)})()},[])
+  return <div className="max-w-[1100px] mx-auto space-y-6"><h2 className="text-2xl font-black">Faculty: {classes.filter(c=>c.faculty_id===profile.id).map(c=>c.name).join(', ')||'All Classes'}</h2><div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><h3 className="font-black mb-4">Submissions ({subs.length})</h3><div className="space-y-2">{subs.map(s=><div key={s.id} className="bg-black/40 p-3 rounded-xl flex justify-between text-sm"><span>{s.users.email} - {s.assignments.title} - Grade: {s.grade||'N/A'}</span><input placeholder="Grade" className="bg-zinc-800 p-1 rounded w-20 text-white" onBlur={async(e)=>{await supabase.from('submissions').update({grade:e.target.value}).eq('id',s.id)}}/></div>)}</div></div></div>
+}
+function StudentDash({profile}){
+  const [assignments,setAssignments]=useState([]); const [mySubs,setMySubs]=useState([])
+  useEffect(()=>{(async()=>{let q=supabase.from('assignments').select('*').order('due_date'); if(profile.class_id) q=q.or(`class_id.eq.${profile.class_id},class_id.is.null`); const {data}=await q; if(data) setAssignments(data); const {data:s}=await supabase.from('submissions').select('*').eq('student_id',profile.id); if(s) setMySubs(s)})()},[profile])
+  const submitWork=async(assignmentId,file)=>{
+    if(!file) return; const path=`${profile.id}/${Date.now()}_${file.name}`; const {error}=await supabase.storage.from('mars-files').upload(path,file); if(error) return alert(error.message); const url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl; await supabase.from('submissions').insert({assignment_id:assignmentId,student_id:profile.id,file_url:url,status:'submitted'}); alert("Submitted!")
   }
-  useEffect(()=>{ load() },[user.id])
-  const viewSubs=async(assign)=>{ setSelectedAssign(assign); setLoadingSubs(true); const {data}=await supabase.from('submissions').select('*, users!submissions_student_id_fkey(full_name,email)').eq('assignment_id', assign.id).order('submitted_at',{ascending:false}); setSubs(data||[]); setLoadingSubs(false); }
-  const deleteAssign = async(id)=>{
-    if(!confirm("Delete this assignment? All student submissions for it will be deleted!")) return;
-    const {error}=await supabase.from('assignments').delete().eq('id',id);
-    if(error) alert(error.message); else { if(selectedAssign?.id===id) setSelectedAssign(null); load(); }
-  }
-  const purgeExpired = async()=>{
-    if(!confirm("Delete all YOUR expired assignments?")) return;
-    const now = new Date().toISOString();
-    const {error}=await supabase.from('assignments').delete().eq('created_by', user.id).lt('due_date', now);
-    if(error) alert(error.message); else load();
-  }
-  const expiredCount = assignments.filter(a=>a.due_date && new Date(a.due_date) < new Date()).length;
-  const filteredAssignments = assignments.filter(a=>!search || a.title.toLowerCase().includes(search.toLowerCase()))
-  return (
-    <div className="space-y-6 max-w-[1400px] mx-auto w-full min-w-0">
-      <div className="bg-gradient-to-br from-orange-600/20 via-zinc-900/70 to-zinc-900 border border-orange-500/20 p-6 rounded-[24px] flex justify-between flex-wrap gap-4 w-full min-w-0">
-        <div className="min-w-0"><h2 className="text-2xl font-black truncate">Welcome, {profile.full_name||user.email.split('@')[0]}</h2><p className="text-zinc-400 mt-1 text-sm break-words">Teaching <span className="text-orange-400 font-bold">{myClasses.map(c=>c.name).join(', ')||'No class'}</span> • {students.length} students • {assignments.length} assignments</p></div>
-        <div className="flex gap-2 flex-wrap"><button onClick={purgeExpired} className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-2xl text-xs font-bold shrink-0">Delete Expired ({expiredCount})</button><div className="bg-black/40 border border-white/5 px-4 py-2 rounded-2xl text-center"><p className="text-[10px] uppercase text-zinc-500">Students</p><p className="text-xl font-black">{students.length}</p></div></div>
-      </div>
-      <div className="bg-zinc-900/70 border border-white/10 p-2 rounded-[24px] flex flex-wrap gap-2 w-full min-w-0">
-        <div className="flex gap-1 bg-black/40 p-1 rounded-full w-full max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide">
-          {[{id:"roster", l:`Roster (${students.length})`},{id:"create", l:"Create"},{id:"assignments", l:`Assignments (${assignments.length})`},{id:"grading", l:`To Grade`}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-white text-black':'text-zinc-400'}`}>{t.l}</button>)}
-        </div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..." className="bg-black/40 border border-white/5 px-4 py-2 rounded-full text-sm w-full sm:w-[180px] text-white"/>
-      </div>
-      {/* rest of your FacultyDash stays same - just ensure w-full min-w-0 on containers */}
-      {tab==="roster" && (<div className="grid lg:grid-cols-3 gap-4 w-full min-w-0">{myClasses.map(c=>(<div key={c.id} className="bg-zinc-900/70 border border-white/10 p-6 rounded-[24px] min-w-0"><div className="flex justify-between gap-2"><p className="font-black text-orange-400 text-lg truncate">{c.name}</p><span className="bg-black/50 border border-white/5 px-3 py-1 rounded-full text-xs shrink-0">{students.filter(s=>s.class_id===c.id).length} students</span></div><div className="mt-4 space-y-2 max-h-[400px] overflow-auto">{students.filter(s=>s.class_id===c.id).map(s=>(<div key={s.id} className="bg-black/40 border border-white/5 p-3 rounded-2xl flex justify-between gap-2"><div className="min-w-0"><p className="font-bold text-sm truncate">{s.full_name||s.email}</p><p className="text-xs text-zinc-500 truncate">{s.email}</p></div><span className="text-[10px] px-2 py-1 rounded-full bg-green-500/20 text-green-400 shrink-0">Active</span></div>))}</div></div>))}</div>)}
-      {tab==="create" && (<div className="grid lg:grid-cols-2 gap-6 w-full min-w-0"><div className="bg-zinc-900/70 border border-orange-500/20 p-4 md:p-6 rounded-[24px] h-fit min-w-0"><h3 className="font-black mb-5 text-lg">New Assignment</h3><div className="space-y-4"><input value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Title" className="w-full bg-zinc-800 border border-white/10 p-4 rounded-2xl text-white"/><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><input value={form.course} onChange={e=>setForm({...form,course:e.target.value})} placeholder="Course" className="w-full bg-zinc-800 border border-white/10 p-4 rounded-2xl text-white"/><select value={form.class_id} onChange={e=>setForm({...form,class_id:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-4 rounded-2xl text-white"><option value="">Select Class</option>{myClasses.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><input type="datetime-local" value={form.due_date} onChange={e=>setForm({...form,due_date:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-4 rounded-2xl text-white"/><input type="file" onChange={e=>setForm({...form,file:e.target.files[0]})} className="w-full text-sm file:bg-orange-600 file:text-white file:border-0 file:px-4 file:py-2 file:rounded-full bg-zinc-800 border border-white/10 p-2 rounded-2xl text-white"/><button onClick={async()=>{ if(!form.title||!form.class_id) return alert('Title & Class required'); let url=null; if(form.file){ const path=`${Date.now()}_${form.file.name}`; const {error}=await supabase.storage.from('mars-files').upload(path,form.file); if(error) return alert(error.message); url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl } const {error}=await supabase.from('assignments').insert({title:form.title,course:form.course,due_date:form.due_date,class_id:form.class_id,attachment_url:url, created_by:user.id}); if(error) alert(error.message); else { alert('Published'); setForm({title:"",course:"",due_date:"",class_id:myClasses[0]?.id||"",file:null}); load(); } }} className="w-full bg-orange-600 py-4 rounded-2xl font-black">Publish</button></div></div><div className="bg-zinc-900/70 border border-white/10 p-6 rounded-[24px] min-w-0"><h3 className="font-black mb-4">Recent</h3>{assignments.slice(0,6).map(a=>{ const exp=a.due_date && new Date(a.due_date)<new Date(); return <div key={a.id} className={`border p-4 rounded-2xl flex justify-between items-center mb-2 gap-2 ${exp?'bg-red-500/10 border-red-500/20':'bg-black/50 border-white/5'}`}><div className="min-w-0"><p className="font-bold text-sm truncate">{a.title} {exp&&<span className="text-red-400 text-[10px]">EXPIRED</span>}</p><p className="text-xs text-zinc-500 truncate">{myClasses.find(c=>c.id===a.class_id)?.name} • Due {a.due_date? new Date(a.due_date).toLocaleDateString():''}</p></div><div className="flex gap-1 shrink-0"><button onClick={()=>{ viewSubs(a); setTab("grading"); }} className="bg-zinc-800 px-3 py-1 rounded-full text-xs">Grade</button><button onClick={()=>deleteAssign(a.id)} className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs">Del</button></div></div>})}</div></div>)}
-      {tab==="assignments" && (<div className="grid gap-3 w-full min-w-0">{filteredAssignments.map(a=>{ const exp=a.due_date && new Date(a.due_date)<new Date(); return (<div key={a.id} className={`border p-4 md:p-5 rounded-[24px] flex flex-col md:flex-row justify-between gap-3 ${exp?'bg-red-500/10 border-red-500/20':'bg-zinc-900/70 border-white/10'}`}><div className="flex gap-4 items-center min-w-0"><div className="w-12 h-12 rounded-2xl bg-zinc-800 flex items-center justify-center font-black shrink-0">{a.title[0]}</div><div className="min-w-0"><p className="font-black truncate">{a.title} {exp&&<span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-[9px] ml-2">EXPIRED</span>}</p><p className="text-xs text-zinc-500 truncate">{myClasses.find(c=>c.id===a.class_id)?.name} • Due {a.due_date? new Date(a.due_date).toLocaleString():''}</p></div></div><div className="flex gap-2 shrink-0 flex-wrap"><a href={a.attachment_url} target="_blank" className={`px-4 py-2 rounded-full text-xs border ${a.attachment_url?'bg-zinc-800 border-white/5':'bg-black/20 border-white/5 text-zinc-600'}`}>File</a><button onClick={()=>{ viewSubs(a); setTab("grading"); }} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">Submissions</button><button onClick={()=>deleteAssign(a.id)} className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-full text-xs font-bold">Delete</button></div></div>)})}</div>)}
-      {tab==="grading" && (<div className="grid lg:grid-cols-[360px_1fr] gap-6 w-full min-w-0"><div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[24px] h-fit min-w-0"><h3 className="font-black mb-4">Select Assignment</h3><div className="space-y-2 max-h-[70vh] overflow-auto">{assignments.map(a=>{ const exp=a.due_date && new Date(a.due_date)<new Date(); return <button key={a.id} onClick={()=>viewSubs(a)} className={`w-full text-left p-4 rounded-2xl border flex justify-between ${selectedAssign?.id===a.id?'bg-orange-600 border-orange-500':'bg-black/40 border-white/5'} ${exp?'opacity-70':''}`}><div className="min-w-0"><p className="font-bold text-sm truncate">{a.title} {exp&&<span className="text-[9px]"> (EXP)</span>}</p><p className="text-xs opacity-70 truncate">{myClasses.find(c=>c.id===a.class_id)?.name}</p></div><span onClick={(e)=>{ e.stopPropagation(); deleteAssign(a.id)}} className="text-xs bg-black/30 px-2 py-1 rounded-full shrink-0">✕</span></button>})}</div></div><div className="bg-zinc-900/70 border border-white/10 p-6 rounded-[24px] min-w-0"><div className="flex justify-between items-center mb-6 flex-wrap gap-2"><h3 className="font-black text-lg truncate">{selectedAssign? `${selectedAssign.title} — ${subs.length} subs` : 'Select assignment'}</h3>{selectedAssign && <button onClick={()=>deleteAssign(selectedAssign.id)} className="bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-1.5 rounded-full text-xs font-bold shrink-0">Delete Assignment</button>}</div>{loadingSubs && <p className="text-zinc-500">Loading...</p>}{!selectedAssign && <div className="border border-dashed border-white/10 p-16 rounded-[32px] text-center"><p className="font-bold">No assignment selected</p></div>}{selectedAssign && subs.length===0 &&!loadingSubs && <div className="border border-dashed border-white/10 p-16 rounded-[32px] text-center"><p className="font-bold">No submissions yet</p></div>}<div className="grid md:grid-cols-2 gap-4">{subs.map(s=>(<div key={s.id} className="bg-black/60 border border-white/5 p-5 rounded-[24px] min-w-0"><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-black truncate">{s.users?.full_name||s.users?.email}</p><p className="text-xs text-zinc-500 truncate">{s.users?.email}</p></div><span className={`text-[10px] px-2 py-1 rounded-full font-bold shrink-0 ${s.status==='graded'?'bg-green-500/20 text-green-400':'bg-orange-500/20 text-orange-400'}`}>{s.status}</span></div><div className="flex gap-2 mt-4"><a href={s.file_url} target="_blank" className="flex-1 bg-zinc-800 px-4 py-2.5 rounded-full text-xs font-bold text-center">Download</a><span className="bg-black/50 border border-white/5 px-3 py-2.5 rounded-full text-[10px] text-zinc-500">{new Date(s.submitted_at).toLocaleDateString()}</span></div><div className="mt-4 space-y-3"><div className="grid grid-cols-3 gap-2"><input id={`g-${s.id}`} defaultValue={s.grade??""} type="number" placeholder="Grade" className="col-span-1 bg-zinc-800 border border-white/10 p-3 rounded-2xl text-sm text-white"/><input id={`f-${s.id}`} defaultValue={s.feedback||""} placeholder="Feedback" className="col-span-2 bg-zinc-800 border border-white/10 p-3 rounded-2xl text-sm text-white"/></div><button onClick={async()=>{ const grade=document.getElementById(`g-${s.id}`).value; const fb=document.getElementById(`f-${s.id}`).value; const {error}=await supabase.from('submissions').update({grade:parseInt(grade), feedback:fb, status:'graded'}).eq('id', s.id); if(error) alert(error.message); else viewSubs(selectedAssign); }} className="w-full bg-white text-black py-3 rounded-2xl text-sm font-black">Save Grade</button></div></div>))}</div></div></div>)}
-    </div>
-  )
+  return <div className="max-w-[900px] mx-auto space-y-4"><h2 className="text-xl font-black">My Assignments</h2>{assignments.map(a=>{const isDone=mySubs.find(s=>s.assignment_id===a.id); const isExpired=a.due_date&&new Date(a.due_date)<new Date(); return <div key={a.id} className={`p-4 rounded-2xl border ${isExpired?'bg-red-500/10 border-red-500/20':'bg-zinc-900/70 border-white/10'}`}><div className="flex justify-between"><p className="font-bold">{a.title} - {a.course}</p>{isDone&&<span className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full text-xs">{isDone.grade?`Grade: ${isDone.grade}`:'Submitted'}</span>}</div><p className="text-xs text-zinc-500">Due: {a.due_date?new Date(a.due_date).toLocaleString():'No due'} {isExpired&&' - EXPIRED'}</p>{a.attachment_url&&<a href={a.attachment_url} target="_blank" className="text-orange-400 text-xs underline">Download Assignment</a>}<div className="mt-3"><input type="file" onChange={e=>submitWork(a.id,e.target.files[0])} className="text-xs file:bg-orange-600 file:text-white file:border-0 file:px-3 file:py-1 file:rounded-full"/></div></div>})}</div>
+}
+function ParentDash({profile}){
+  const [child,setChild]=useState(null)
+  useEffect(()=>{(async()=>{if(profile.linked_student_id){const {data}=await supabase.from('users').select('*').eq('id',profile.linked_student_id).single(); setChild(data)}})()},[profile])
+  return <div className="max-w-[800px] mx-auto"><h2 className="text-xl font-black">Parent View</h2><p className="text-zinc-400">Child: {child?.email||'Not linked yet'}</p></div>
 }
 
-function StudentDash({user, profile}){
-  const [classInfo,setClassInfo]=useState(null); const [faculty,setFaculty]=useState(null); const [assignments,setAssignments]=useState([]); const [mySubs,setMySubs]=useState({}); const [uploadingId,setUploadingId]=useState(null); const [tab,setTab]=useState("all"); const [search,setSearch]=useState("");
-  const load=async()=>{
-    if(profile.class_id){
-      const {data:c}=await supabase.from('classes').select('*').eq('id',profile.class_id).single();
-      if(c){ setClassInfo(c); if(c.faculty_id){ const {data:f}=await supabase.from('users').select('email,full_name').eq('id',c.faculty_id).single(); if(f) setFaculty(f) } }
-      const {data:a}=await supabase.from('assignments').select('*').or(`class_id.eq.${profile.class_id},class_id.is.null`).order('due_date', {ascending:true}); if(a) setAssignments(a);
-    } else {
-      const {data:a}=await supabase.from('assignments').select('*').is('class_id', null).order('due_date'); if(a) setAssignments(a);
-    }
-    const {data:subs}=await supabase.from('submissions').select('*').eq('student_id', user.id); const m={}; subs?.forEach(s=>m[s.assignment_id]=s); setMySubs(m);
-  }
-  useEffect(()=>{ load() },[profile.class_id])
-  const submitWork=async(assign, file)=>{
-    if(!file) return; const now=new Date(); if(assign.due_date && new Date(assign.due_date) < now) return alert("Due date passed! Cannot submit.");
-    setUploadingId(assign.id); const path=`submissions/${assign.id}/${user.id}_${Date.now()}_${file.name}`; const {error:upErr}=await supabase.storage.from('mars-files').upload(path, file); if(upErr){ alert(upErr.message); setUploadingId(null); return; } const url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl; await supabase.from('submissions').upsert({assignment_id:assign.id, student_id:user.id, file_url:url, status:'submitted', submitted_at: new Date().toISOString()}, {onConflict:'assignment_id,student_id'}); setUploadingId(null); load();
-  }
-  const getStatus = (a) => { const sub = mySubs[a.id]; if(!sub) return "pending"; return sub.status; }
-  const filtered = assignments.filter(a=>{
-    if(search &&!a.title.toLowerCase().includes(search.toLowerCase())) return false;
-    const s = getStatus(a); if(tab==="all") return true; if(tab==="todo") return s==="pending"; if(tab==="submitted") return s==="submitted"; if(tab==="graded") return s==="graded"; return true;
-  })
-  const stats = { total: assignments.length, todo: assignments.filter(a=>!mySubs[a.id]).length, submitted: Object.values(mySubs).filter(s=>s.status==='submitted').length, graded: Object.values(mySubs).filter(s=>s.status==='graded').length, avg: (()=>{ const g=Object.values(mySubs).filter(s=>s.grade!=null).map(s=>s.grade); return g.length? Math.round(g.reduce((a,b)=>a+b,0)/g.length) : 0 })() }
-  return (
-    <div className="space-y-6 max-w-[1200px] mx-auto w-full min-w-0">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">My Class</p><p className="text-xl font-black text-orange-400 mt-1 truncate">{classInfo?.name||'Not assigned'}</p><p className="text-xs text-zinc-600 mt-1">{stats.total} assignments</p></div>
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">My Faculty</p><p className="font-bold mt-1 truncate">{faculty?.full_name||faculty?.email?.split('@')[0]||'Unassigned'}</p></div>
-        <div className="bg-zinc-900/70 border border-orange-500/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Progress</p><div className="flex gap-2 items-end mt-1"><p className="text-3xl font-black">{stats.total? Math.round(((stats.submitted+stats.graded)/stats.total)*100):0}%</p><p className="text-xs text-zinc-500 mb-1">{stats.submitted+stats.graded}/{stats.total} done</p></div><div className="w-full bg-black/50 h-1.5 rounded-full mt-3"><div className="bg-orange-600 h-1.5 rounded-full" style={{width:`${stats.total? ((stats.submitted+stats.graded)/stats.total)*100:0}%`}}></div></div></div>
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px] min-w-0"><p className="text-[10px] uppercase text-zinc-500">Average</p><p className="text-3xl font-black mt-1">{stats.avg? `${stats.avg}%` : '--'}</p></div>
-      </div>
-      <div className="bg-zinc-900/70 border border-white/10 p-2 rounded-[24px] flex flex-wrap gap-2 w-full min-w-0">
-        <div className="flex gap-1 bg-black/40 p-1 rounded-full w-full max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide">
-          {[{id:"all", l:`All (${stats.total})`},{id:"todo", l:`To Do (${stats.todo})`},{id:"submitted", l:`Submitted (${stats.submitted})`},{id:"graded", l:`Graded (${stats.graded})`}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-white text-black':'text-zinc-400'}`}>{t.l}</button>)}
-        </div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..." className="bg-black/40 border border-white/5 px-4 py-2 rounded-full text-sm w-full sm:w-[200px] text-white"/>
-      </div>
-      <div className="grid gap-4 w-full min-w-0">
-        {filtered.map(a=>{
-          const sub=mySubs[a.id]; const status=getStatus(a); const overdue = a.due_date && new Date(a.due_date) < new Date() && status==="pending";
-          return (<div key={a.id} className={`bg-zinc-900/70 border ${overdue?'border-red-500/30':'border-white/10'} p-0 rounded-[24px] overflow-hidden w-full min-w-0`}><div className="p-5 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4"><div className="flex gap-4 min-w-0"><div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 ${status==='graded'?'bg-green-500/20 text-green-400': status==='submitted'?'bg-orange-500/20 text-orange-400':'bg-zinc-800 text-zinc-400'}`}>{status==='graded'? `${sub.grade}` : status==='submitted'? '✓' : a.course?.[0]||'A'}</div><div className="min-w-0"><div className="flex gap-2 items-center flex-wrap"><p className="font-black text-white truncate">{a.title}</p><span className="bg-black/50 border border-white/5 px-2.5 py-1 rounded-full text-[10px] text-zinc-400 shrink-0">{a.course||'General'}</span>{overdue && <span className="bg-red-500/20 text-red-400 px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0">OVERDUE - CLOSED</span>}{status==='graded' && <span className="bg-green-500/20 text-green-400 px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0">GRADED {sub.grade}/100</span>}{status==='submitted' && <span className="bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0">SUBMITTED</span>}</div><p className="text-xs text-zinc-500 mt-1 break-all">Due: {a.due_date? new Date(a.due_date).toLocaleString() : 'No due'} • {sub? `Submitted ${new Date(sub.submitted_at).toLocaleString()}` : 'Not submitted'}</p>{status==='graded' && sub.feedback && <p className="text-sm bg-green-500/10 border border-green-500/20 p-2.5 rounded-xl mt-3 break-words">Feedback: {sub.feedback}</p>}</div></div><div className="flex gap-2 shrink-0 flex-wrap">{a.attachment_url && <a href={a.attachment_url} target="_blank" className="bg-zinc-800 px-5 py-2.5 rounded-full text-xs font-bold">Question</a>}{sub?.file_url && <a href={sub.file_url} target="_blank" className="bg-white text-black px-5 py-2.5 rounded-full text-xs font-bold">My Work</a>}</div></div><div className="bg-black/50 border-t border-white/5 p-3 px-6 flex justify-between items-center flex-wrap gap-2">{status==="pending"? (<div className="flex gap-3 items-center w-full min-w-0">{overdue? <p className="text-xs text-red-400 font-bold">⚠️ Due date passed - submission closed</p> : <><label className="flex-1 flex items-center gap-3 bg-zinc-800/80 border border-white/10 px-3 py-2 rounded-full cursor-pointer min-w-0"><span className="bg-orange-600 text-white px-4 py-1.5 rounded-full text-xs font-black shrink-0">Choose File</span><span className="text-xs text-zinc-400 truncate">{uploadingId===a.id? 'Uploading...' : 'Upload PDF'}</span><input type="file" className="hidden" onChange={e=>submitWork(a, e.target.files[0])} /></label>{uploadingId===a.id && <div className="w-5 h-5 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin shrink-0"></div>}</>}</div>) : status==="submitted"? (<div className="flex justify-between w-full items-center flex-wrap gap-2"><p className="text-xs text-zinc-500">✓ Submitted — waiting for grading</p><label className="bg-zinc-800 border border-white/10 px-4 py-1.5 rounded-full text-xs cursor-pointer">Resubmit<input type="file" className="hidden" onChange={e=>submitWork(a, e.target.files[0])}/></label></div>) : (<div className="flex justify-between w-full items-center flex-wrap gap-2"><p className="text-xs text-green-400 font-bold">✓ Graded: {sub.grade}/100</p><label className="bg-zinc-800 border border-white/10 px-4 py-1.5 rounded-full text-xs cursor-pointer">Resubmit<input type="file" className="hidden" onChange={e=>submitWork(a, e.target.files[0])}/></label></div>)}</div></div>)
-        })}
-      </div>
-    </div>
-  )
-}
-
-function LoginForm({type}){
-  const [loading,setLoading]=useState(false)
-  const inputLight="w-full bg-slate-100 text-black p-4 rounded-2xl placeholder:text-zinc-500 outline-none border-2 border-transparent focus:border-orange-500"
-  const inputDark="w-full bg-zinc-800 border border-white/20 p-3.5 rounded-2xl text-white placeholder:text-zinc-500 outline-none"
-  const handleLogin=async(e)=>{ e.preventDefault(); setLoading(true); const {error}=await supabase.auth.signInWithPassword({email:e.target.email.value,password:e.target.password.value}); if(error) alert(error.message); setLoading(false) }
-  const handleSignup=async(e)=>{ e.preventDefault(); setLoading(true); const {data,error}=await supabase.auth.signUp({ email:e.target.email.value, password:e.target.password.value, options:{ data:{ full_name:e.target.fullname.value, role:e.target.role.value } } }); if(error) alert(error.message); else alert('Account created as '+e.target.role.value.toUpperCase()+'! Wait for approval'); setLoading(false) }
-  if(type==='login'){ return <form onSubmit={handleLogin} className="space-y-3 w-full"><input name="email" placeholder="Email" className={inputLight} required/><input name="password" type="password" placeholder="Password" className={inputLight} required/><button disabled={loading} className="w-full bg-orange-600 p-4 rounded-2xl font-black text-black">{loading?'Loading...':'LOGIN'}</button></form> }
-  return (<form onSubmit={handleSignup} className="mt-3 space-y-3 bg-zinc-800/50 p-4 rounded-[24px] border border-white/10 w-full"><input name="fullname" placeholder="Full Name" className={inputDark} required/><input name="email" placeholder="Email" className={inputDark} required/><input name="password" type="password" placeholder="Password" className={inputDark} required/><select name="role" className={inputDark}><option value="student">Student</option><option value="faculty">Faculty</option></select><button disabled={loading} className="w-full bg-white text-black p-3.5 rounded-2xl font-bold">{loading?'Creating...':'Sign Up'}</button></form>)
-}
-
-export default function AppWrapper(){
-  const [user,setUser]=useState(null), [profile,setProfile]=useState(null), [loading,setLoading]=useState(true)
-  useEffect(()=>{ supabase.auth.getSession().then(({data})=>{ if(data.session) setUser(data.session.user); setLoading(false) }); supabase.auth.onAuthStateChange((_,s)=>{ setUser(s?.user||null); setLoading(false) }) },[])
-  useEffect(()=>{ if(!user) return; supabase.from('users').select('*').eq('id',user.id).single().then(({data})=>{ if(!data){ const isSuper=user.email==='admin1@mars.com'; const pickedRole=(user.user_metadata?.role||'student').toLowerCase().trim(); const finalRole=isSuper?'super_admin':pickedRole; const newUser={id:user.id,email:user.email,role:finalRole,full_name:user.user_metadata?.full_name||'',is_active:isSuper}; supabase.from('users').insert(newUser).select().single().then(({data:d})=>setProfile(d||newUser)) } else setProfile(data) }) },[user])
-  if(loading) return <div className="min-h-screen bg-black flex items-center justify-center text-white">Loading...</div>
-  if(!user) return <div className="min-h-screen bg-[#050505] flex items-center justify-center p-4"><div className="bg-zinc-900/80 p-8 rounded-[32px] w-full max-w-md border border-white/10"><h1 className="text-4xl font-black mb-1"><span className="text-orange-500">MARS</span> <span className="text-white">E-School</span></h1><p className="text-zinc-500 text-sm mb-8">Modern Learning OS</p><LoginForm type="login"/><details className="mt-6"><summary className="text-zinc-400 text-sm cursor-pointer">Create account</summary><LoginForm type="signup"/></details></div></div>
-  let role=(profile?.role||'').toLowerCase(); if(user.email==='admin1@mars.com') role='super_admin'
-  const isActive=profile?.is_active || role==='super_admin'
-  const isAdmin=['super_admin','school_admin'].includes(role)
-  const isFaculty=['faculty','teacher'].includes(role)
-  if(!isActive) return <div className="min-h-screen bg-black flex items-center justify-center p-6 text-center"><div className="bg-zinc-900 border border-orange-500/20 p-10 rounded-[32px] max-w-md w-full"><h2 className="text-2xl font-black mb-2 text-white">Access Pending</h2><p className="text-zinc-400">Hi {user.email} as {role.toUpperCase()} waiting</p><button onClick={()=>supabase.auth.signOut()} className="mt-6 bg-zinc-800 px-6 py-3 rounded-full text-white">Logout</button></div></div>
-  return <div className="min-h-screen bg-[#080808] text-white p-4 md:p-8 w-full max-w-[100vw] overflow-x-hidden"><header className="flex justify-between items-center mb-8 bg-zinc-900/60 p-3 pl-4 md:pl-6 rounded-full border border-white/10 w-full min-w-0 gap-2"><h1 className="text-[11px] md:text-sm font-black truncate min-w-0"><span className="text-orange-500">MARS</span> • <span className="truncate">{user.email}</span> • {role.toUpperCase()}</h1><button onClick={()=>supabase.auth.signOut()} className="bg-white text-black px-4 md:px-5 py-2 rounded-full font-bold text-xs md:text-sm shrink-0">Logout</button></header>{isAdmin? <AdminDash/> : isFaculty? <FacultyDash user={user} profile={profile}/> : <StudentDash user={user} profile={profile}/>}</div>
-}
+export default AppWrapper
