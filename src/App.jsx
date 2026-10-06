@@ -10,6 +10,146 @@ const sanitizeInput = (str) => {
 }
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)
 
+// ==================== NEW: ATTENDANCE MODULE (V2 - uses enrollments) ====================
+function AttendanceModule({ profile, classes, enrollments, users }){
+  const [selectedClass, setSelectedClass] = useState(classes[0]?.id || "")
+  const [date, setDate] = useState(new Date().toISOString().slice(0,10))
+  const [records, setRecords] = useState({})
+  const [existing, setExisting] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [currentYear, setCurrentYear] = useState(null)
+  const [currentTerm, setCurrentTerm] = useState(null)
+
+  useEffect(()=>{ (async()=>{
+    const y = await supabase.from('academic_years').select('*').eq('is_current',true).single(); if(y.data) setCurrentYear(y.data)
+    const t = await supabase.from('terms').select('*').limit(1).single(); if(t.data) setCurrentTerm(t.data)
+  })()},[])
+
+  useEffect(()=>{ if(classes[0] &&!selectedClass) setSelectedClass(classes[0].id) },[classes])
+
+  const studentsInClass = users.filter(u => enrollments.filter(e=>e.class_id===selectedClass).map(e=>e.student_id).includes(u.id))
+
+  const loadAttendance = async()=>{
+    if(!selectedClass ||!date) return
+    const {data} = await supabase.from('attendance').select('*').eq('class_id', selectedClass).eq('date', date)
+    if(data){
+      setExisting(data)
+      const map={}
+      data.forEach(r=> map[r.student_id]=r.status)
+      setRecords(map)
+    } else { setExisting([]); setRecords({}) }
+  }
+  useEffect(()=>{ loadAttendance() },[selectedClass, date])
+
+  const setStatus = (studentId, status)=> setRecords(prev=> ({...prev, [studentId]: status}))
+
+  const saveAll = async()=>{
+    if(!selectedClass) return alert("Select class")
+    setSaving(true)
+    for(const s of studentsInClass){
+      const status = records[s.id] || 'present'
+      const existingRec = existing.find(e=>e.student_id===s.id)
+      if(existingRec){
+        await supabase.from('attendance').update({status, marked_by: profile.id}).eq('id', existingRec.id)
+      } else {
+        await supabase.from('attendance').insert({
+          student_id: s.id,
+          class_id: selectedClass,
+          academic_year_id: currentYear?.id,
+          term_id: currentTerm?.id,
+          date,
+          status,
+          marked_by: profile.id
+        })
+      }
+    }
+    setSaving(false)
+    alert(`Attendance saved for ${studentsInClass.length} students - ${date}`)
+    loadAttendance()
+  }
+
+  const markAll = (status)=>{
+    const map={}
+    studentsInClass.forEach(s=> map[s.id]=status)
+    setRecords(map)
+  }
+
+  const stats = {
+    present: Object.values(records).filter(v=>v==='present').length,
+    absent: Object.values(records).filter(v=>v==='absent').length,
+    late: Object.values(records).filter(v=>v==='late').length,
+    excused: Object.values(records).filter(v=>v==='excused').length,
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-zinc-900/70 border border-white/10 p-4 rounded-[20px] flex flex-col md:flex-row gap-3 md:items-center justify-between">
+        <div className="flex gap-2">
+          <select value={selectedClass} onChange={e=>setSelectedClass(e.target.value)} className="bg-zinc-800 border border-white/10 p-3 rounded-xl text-white text-sm">
+            {classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="bg-zinc-800 border border-white/10 p-3 rounded-xl text-white text-sm"/>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={()=>markAll('present')} className="bg-green-600/20 text-green-400 px-3 py-2 rounded-full text-xs font-bold">All Present</button>
+          <button onClick={()=>markAll('absent')} className="bg-red-600/20 text-red-400 px-3 py-2 rounded-full text-xs font-bold">All Absent</button>
+          <button onClick={saveAll} disabled={saving} className="bg-orange-600 text-white px-5 py-2 rounded-full text-xs font-black disabled:opacity-50">{saving?'Saving...':'Save Attendance'}</button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-2xl"><p className="text-[10px] text-green-400 uppercase">Present</p><p className="text-2xl font-black text-white">{stats.present}</p></div>
+        <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-2xl"><p className="text-[10px] text-yellow-400 uppercase">Late</p><p className="text-2xl font-black text-white">{stats.late}</p></div>
+        <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl"><p className="text-[10px] text-red-400 uppercase">Absent</p><p className="text-2xl font-black text-white">{stats.absent}</p></div>
+      </div>
+
+      <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] overflow-hidden">
+        <div className="grid grid-cols-[1fr_70px_70px_70px] md:grid-cols-[1fr_90px_90px_90px_90px] gap-2 p-3 bg-black/40 text-[10px] uppercase tracking-widest text-zinc-500 font-bold">
+          <div>Student ({studentsInClass.length})</div><div className="text-center">Present</div><div className="text-center">Late</div><div className="text-center">Absent</div><div className="text-center hidden md:block">Excused</div>
+        </div>
+        <div className="divide-y divide-white/5 max-h-[500px] overflow-auto">
+          {studentsInClass.map(s=>{
+            const cur = records[s.id] || 'present'
+            return (
+              <div key={s.id} className="grid grid-cols-[1fr_70px_70px_70px] md:grid-cols-[1fr_90px_90px_90px_90px] gap-2 p-3 items-center hover:bg-white/[0.03]">
+                <div className="flex items-center gap-2 min-w-0"><div className="w-8 h-8 bg-orange-600/20 rounded-full flex items-center justify-center font-black text-orange-400 text-xs">{s.full_name?.[0]||s.email[0].toUpperCase()}</div><div className="min-w-0"><p className="text-sm font-bold text-white truncate">{s.full_name||s.email}</p><p className="text-[11px] text-zinc-500 truncate">{s.email}</p></div></div>
+                <button onClick={()=>setStatus(s.id,'present')} className={`py-2 rounded-xl text-xs font-bold ${cur==='present'?'bg-green-600 text-white':'bg-zinc-800 text-zinc-400'}`}>✅</button>
+                <button onClick={()=>setStatus(s.id,'late')} className={`py-2 rounded-xl text-xs font-bold ${cur==='late'?'bg-yellow-600 text-white':'bg-zinc-800 text-zinc-400'}`}>⏰</button>
+                <button onClick={()=>setStatus(s.id,'absent')} className={`py-2 rounded-xl text-xs font-bold ${cur==='absent'?'bg-red-600 text-white':'bg-zinc-800 text-zinc-400'}`}>❌</button>
+                <button onClick={()=>setStatus(s.id,'excused')} className={`py-2 rounded-xl text-xs font-bold hidden md:block ${cur==='excused'?'bg-blue-600 text-white':'bg-zinc-800 text-zinc-400'}`}>📝</button>
+              </div>
+            )
+          })}
+          {studentsInClass.length===0 && <p className="p-10 text-center text-zinc-500 text-sm">No students in this class. Admin must enroll students via enrollments table.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StudentAttendanceView({profile}){
+  const [att, setAtt] = useState([])
+  useEffect(()=>{(async()=>{
+    const {data} = await supabase.from('attendance').select('*').eq('student_id', profile.id).order('date',{ascending:false}).limit(30)
+    if(data) setAtt(data)
+  })()},[])
+  const present = att.filter(a=>a.status==='present').length
+  const rate = att.length? Math.round(present/att.length*100) : 0
+  return (
+    <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5">
+      <div className="flex justify-between items-center mb-3"><h4 className="font-black text-white">My Attendance - {rate}%</h4><span className="text-xs text-zinc-500">{att.length} days</span></div>
+      <div className="w-full bg-zinc-800 rounded-full h-2 mb-4"><div className="bg-green-500 h-2 rounded-full transition-all" style={{width:`${rate}%`}}></div></div>
+      <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+        <div className="bg-green-500/10 p-2 rounded-xl"><p className="text-green-400 font-black">{att.filter(a=>a.status==='present').length}</p><p className="text-[10px] text-zinc-500">Present</p></div>
+        <div className="bg-yellow-500/10 p-2 rounded-xl"><p className="text-yellow-400 font-black">{att.filter(a=>a.status==='late').length}</p><p className="text-[10px] text-zinc-500">Late</p></div>
+        <div className="bg-red-500/10 p-2 rounded-xl"><p className="text-red-400 font-black">{att.filter(a=>a.status==='absent').length}</p><p className="text-[10px] text-zinc-500">Absent</p></div>
+      </div>
+      <div className="space-y-2 max-h-[300px] overflow-auto">{att.map(a=><div key={a.id} className="flex justify-between text-sm bg-black/30 p-2.5 rounded-xl"><span className="text-zinc-400">{a.date}</span><span className={`font-bold ${a.status==='present'?'text-green-400':a.status==='absent'?'text-red-400':a.status==='late'?'text-yellow-400':'text-blue-400'}`}>{a.status.toUpperCase()}</span></div>)}{att.length===0 && <p className="text-xs text-zinc-500 text-center py-4">No attendance records yet. Faculty will mark daily.</p>}</div>
+    </div>
+  )
+}
+// ==================== END ATTENDANCE MODULE ====================
+
 function AppWrapper(){
   const [user,setUser]=useState(null)
   const [profile,setProfile]=useState(null)
@@ -84,7 +224,7 @@ function AppWrapper(){
   return (
     <div className="min-h-screen bg-[#080808] text-white">
       <header className="sticky top-0 z-50 bg-black/90 backdrop-blur border-b border-white/10 px-4 py-3 flex justify-between items-center">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black text-white">M</div><span className="font-black text-white">MARS V2</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2 text-white">{profile?.role} • enrollments</span></div>
+        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black text-white">M</div><span className="font-black text-white">MARS V2</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2 text-white">{profile?.role} • attendance</span></div>
         <div className="flex items-center gap-2"><span className="text-xs text-zinc-400 hidden sm:block">{profile?.email}</span><button onClick={logout} className="bg-zinc-800 text-white px-3 py-1.5 rounded-full text-xs">Logout</button></div>
       </header>
       <main className="p-3 md:p-6">
@@ -102,7 +242,7 @@ function AuthPage({mode,setMode,form,setForm,onSubmit,lockedUntil,submitting}){
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{background:'#080808'}}>
       <div className="p-6 md:p-8 rounded-[24px] w-full max-w-[400px] border border-white/10" style={{background:'#18181b'}}>
-        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School V2</p><p className="text-[10px] text-emerald-400">🛡️ Enrollments based</p></div></div>
+        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School V2</p><p className="text-[10px] text-emerald-400">🛡️ Attendance Live</p></div></div>
         <h2 className="text-2xl font-black text-white mb-4">{mode==="login"?"Welcome Back":"Create Account"}</h2>
         <form onSubmit={onSubmit} className="space-y-3" noValidate>
           <input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="Email" type="email" required maxLength={254} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/>
@@ -152,12 +292,10 @@ function AdminDash({profile}){
     if(!cleanName) return alert("Name needed")
     const {data:cls,error}=await supabase.from('classes').insert({name:cleanName,faculty_id:classForm.faculty_id||null, academic_year_id: currentYear?.id || null}).select().single()
     if(error) return alert(error.message)
-    // V2: INSERT into enrollments instead of users.class_id
     if(classForm.student_ids.length>0){
       const rows=classForm.student_ids.map(sid=>({student_id:sid, class_id:cls.id, academic_year_id: currentYear?.id || null, term_id: currentTerm?.id || null, status:'active'}))
       const {error:eErr}=await supabase.from('enrollments').insert(rows)
       if(eErr) alert("Enroll error: "+eErr.message)
-      // Keep backward compat: also update users.class_id for old code
       await supabase.from('users').update({class_id:cls.id}).in('id',classForm.student_ids)
     }
     setClassForm({name:"",faculty_id:"",student_ids:[]}); load()
@@ -168,7 +306,6 @@ function AdminDash({profile}){
     const rows=addStudentIds.map(sid=>({student_id:sid, class_id:classId, academic_year_id: currentYear?.id || null, term_id: currentTerm?.id || null, status:'active'}))
     const {error}=await supabase.from('enrollments').insert(rows)
     if(error) return alert(error.message)
-    // backward compat
     await supabase.from('users').update({class_id:classId}).in('id',addStudentIds)
     setAddStudentIds([]); setEditClassId(null); load()
   }
@@ -240,7 +377,7 @@ function AdminDash({profile}){
 function FacultyDash({profile}){
   const [classes,setClasses]=useState([]); const [users,setUsers]=useState([]); const [enrollments,setEnrollments]=useState([])
   const [assignments,setAssignments]=useState([]); const [subs,setSubs]=useState([])
-  const [tab,setTab]=useState("overview")
+  const [tab,setTab]=useState("attendance") // CHANGED TO ATTENDANCE FIRST
   const [form,setForm]=useState({title:"",course:"",due_date:"",class_id:"",file:null})
   const [uploading,setUploading]=useState(false)
   const [grades,setGrades]=useState({}); const [feedbacks,setFeedbacks]=useState({})
@@ -256,14 +393,12 @@ function FacultyDash({profile}){
       }
     }
     const aRes=await supabase.from('assignments').select('*').eq('created_by', profile.id).order('created_at',{ascending:false}); if(aRes.data) setAssignments(aRes.data)
-    // Get submissions for my assignments OR my classes
     if(myClassIds.length>0){
       const aAll=await supabase.from('assignments').select('*').in('class_id', myClassIds)
       const allAssignmentIds=[...(aRes.data||[]).map(a=>a.id),...(aAll.data||[]).map(a=>a.id)]
       if(allAssignmentIds.length>0){
         const sRes=await supabase.from('submissions').select('*').in('assignment_id', allAssignmentIds)
         if(sRes.data){
-          // enrich
           const allUsers=await supabase.from('users').select('*')
           const allAssignments=await supabase.from('assignments').select('*')
           const enriched=sRes.data.map(sub=>{
@@ -316,10 +451,11 @@ function FacultyDash({profile}){
         <div className="bg-zinc-900/70 border border-orange-500/20 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submissions</p><p className="text-3xl font-black text-orange-400 mt-1">{subs.length}</p></div>
       </div>
       <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full border border-white/10 overflow-x-auto">
-        {[{id:"overview",l:"Overview"},{id:"students",l:`My Students (${myStudents.length})`},{id:"create",l:"Create Assignment"},{id:"submissions",l:`Submissions (${subs.length})`}].map(t=>
+        {[{id:"attendance",l:"📅 Attendance"},{id:"overview",l:"Overview"},{id:"students",l:`My Students (${myStudents.length})`},{id:"create",l:"Create Assignment"},{id:"submissions",l:`Submissions (${subs.length})`}].map(t=>
           <button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>
         )}
       </div>
+      {tab==="attendance" && <AttendanceModule profile={profile} classes={myClasses} enrollments={enrollments} users={myStudents} />}
       {tab==="overview" && (
         <div className="grid lg:grid-cols-3 gap-5">
           <div className="lg:col-span-2 space-y-4">
@@ -398,7 +534,6 @@ function FacultyDash({profile}){
 function StudentDash({profile}){
   const [assignments,setAssignments]=useState([]); const [mySubs,setMySubs]=useState([]); const [myClass,setMyClass]=useState(null); const [myFaculty,setMyFaculty]=useState(null); const [enrollment,setEnrollment]=useState(null)
   useEffect(()=>{(async()=>{
-    // V2: get class via enrollments
     const {data:enroll}=await supabase.from('enrollments').select('*').eq('student_id', profile.id).eq('status','active').order('created_at',{ascending:false}).limit(1).single()
     if(enroll){
       setEnrollment(enroll)
@@ -406,7 +541,6 @@ function StudentDash({profile}){
       if(cls.data?.faculty_id){ const fac=await supabase.from('users').select('*').eq('id',cls.data.faculty_id).single(); if(fac.data) setMyFaculty(fac.data) }
       const a=await supabase.from('assignments').select('*').or(`class_id.eq.${enroll.class_id},class_id.is.null`).order('due_date',{ascending:true}); if(a.data) setAssignments(a.data)
     } else {
-      // fallback to old users.class_id for backward compat
       if(profile.class_id){
         const cls=await supabase.from('classes').select('*').eq('id',profile.class_id).single(); if(cls.data) setMyClass(cls.data)
         const a=await supabase.from('assignments').select('*').or(`class_id.eq.${profile.class_id},class_id.is.null`).order('due_date',{ascending:true}); if(a.data) setAssignments(a.data)
@@ -433,6 +567,10 @@ function StudentDash({profile}){
         <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Pending</p><p className="text-3xl font-black text-orange-400 mt-1">{assignments.filter(a=>!mySubs.find(s=>s.assignment_id===a.id)).length}</p></div>
         <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submitted</p><p className="text-3xl font-black text-green-400 mt-1">{mySubs.length}</p></div>
       </div>
+
+      {/* NEW STUDENT ATTENDANCE */}
+      <StudentAttendanceView profile={profile} />
+
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-3">
           {assignments.map(a=>{
@@ -466,15 +604,17 @@ function StudentDash({profile}){
 }
 
 function ParentDash({profile}){
-  const [child,setChild]=useState(null); const [childClass,setChildClass]=useState(null); const [childGrades,setChildGrades]=useState([])
+  const [child,setChild]=useState(null); const [childClass,setChildClass]=useState(null); const [childGrades,setChildGrades]=useState([]); const [childAtt,setChildAtt]=useState([])
   useEffect(()=>{(async()=>{
     if(profile.linked_student_id){
       const d=await supabase.from('users').select('*').eq('id',profile.linked_student_id).single(); if(d.data) setChild(d.data)
       const enroll=await supabase.from('enrollments').select('*').eq('student_id', profile.linked_student_id).single(); if(enroll.data){ const c=await supabase.from('classes').select('*').eq('id', enroll.data.class_id).single(); if(c.data) setChildClass(c.data) }
       const subs=await supabase.from('submissions').select('*').eq('student_id', profile.linked_student_id); if(subs.data) setChildGrades(subs.data)
+      const att=await supabase.from('attendance').select('*').eq('student_id', profile.linked_student_id).order('date',{ascending:false}).limit(20); if(att.data) setChildAtt(att.data)
     }
   })()},[profile]);
-  return <div className="max-w-[800px] mx-auto space-y-4"><h2 className="text-xl font-black text-white">Parent View V2</h2><div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><p className="text-zinc-400">Child: {child?child.email:"Not linked"}</p><p className="text-zinc-400">Class (via enrollments): {childClass?.name||'N/A'}</p><p className="text-zinc-400">Submissions: {childGrades.length}</p></div></div>
+  const rate = childAtt.length? Math.round(childAtt.filter(a=>a.status==='present').length/childAtt.length*100) : 0
+  return <div className="max-w-[800px] mx-auto space-y-4"><h2 className="text-xl font-black text-white">Parent View V2</h2><div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6 space-y-3"><p className="text-zinc-400">Child: {child?child.email:"Not linked"}</p><p className="text-zinc-400">Class (via enrollments): {childClass?.name||'N/A'}</p><p className="text-zinc-400">Submissions: {childGrades.length}</p><div className="pt-3 border-t border-white/10"><p className="text-white font-bold">Attendance: {rate}% ({childAtt.filter(a=>a.status==='present').length}/{childAtt.length} days)</p><div className="w-full bg-zinc-800 rounded-full h-2 mt-2"><div className="bg-green-500 h-2 rounded-full" style={{width:`${rate}%`}}></div></div></div></div></div>
 }
 
 export default AppWrapper
