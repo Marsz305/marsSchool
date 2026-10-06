@@ -148,7 +148,68 @@ function StudentAttendanceView({profile}){
     </div>
   )
 }
-// ==================== END ATTENDANCE MODULE ====================
+
+// ==================== GRADEBOOK MODULE (NEW) ====================
+function GradebookModule({ profile, classes, enrollments, users }){
+  const [selectedClass, setSelectedClass] = useState(classes[0]?.id || "")
+  const [subjects, setSubjects] = useState([])
+  const [selectedSubject, setSelectedSubject] = useState("")
+  const [marks, setMarks] = useState({})
+  const [existingGrades, setExistingGrades] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [currentYear, setCurrentYear] = useState(null)
+  const [currentTerm, setCurrentTerm] = useState(null)
+  const weighting = {test1:20, test2:20, assignment:20, final:40}
+
+  useEffect(()=>{ (async()=>{
+    const {data} = await supabase.from('subjects').select('*').order('name'); if(data) setSubjects(data)
+    const y = await supabase.from('academic_years').select('*').eq('is_current',true).single(); if(y.data) setCurrentYear(y.data)
+    const t = await supabase.from('terms').select('*').limit(1).single(); if(t.data) setCurrentTerm(t.data)
+  })()},[])
+  useEffect(()=>{ if(classes[0] &&!selectedClass) setSelectedClass(classes[0].id) },[classes])
+  const studentsInClass = users.filter(u => enrollments.filter(e=>e.class_id===selectedClass).map(e=>e.student_id).includes(u.id))
+  const loadGrades = async()=>{
+    if(!selectedClass ||!selectedSubject) return
+    const {data} = await supabase.from('grades').select('*').eq('class_id', selectedClass).eq('subject_id', selectedSubject)
+    if(data){ setExistingGrades(data); const map={}; data.forEach(g=>{ if(!map[g.student_id]) map[g.student_id]={}; map[g.student_id][g.assessment_type]=g.score }); setMarks(map) } else { setMarks({}); setExistingGrades([]) }
+  }
+  useEffect(()=>{ loadGrades() },[selectedClass, selectedSubject])
+  const setMark = (studentId, type, value)=>{ const v = value===""? "" : Math.min(100, Math.max(0, parseFloat(value)||0)); setMarks(prev=> ({...prev, [studentId]: {...(prev[studentId]||{}), [type]: v}})) }
+  const calcFinal = (studentMarks)=>{ if(!studentMarks) return 0; let total=0; Object.entries(weighting).forEach(([type,w])=>{ const score = studentMarks[type]; if(score!=="" && score!=undefined){ total += (parseFloat(score)||0) * (w/100) } }); return Math.round(total) }
+  const getGrade = (p)=> p>=80?'A':p>=70?'B':p>=60?'C':p>=50?'D':p>=40?'E':'F'
+  const saveAll = async()=>{
+    if(!selectedClass ||!selectedSubject) return alert("Select class & subject")
+    setSaving(true)
+    for(const s of studentsInClass){
+      const sMarks = marks[s.id]||{}
+      for(const type of Object.keys(weighting)){
+        const score = sMarks[type]; if(score==="" || score==undefined) continue
+        const existing = existingGrades.find(g=> g.student_id===s.id && g.assessment_type===type)
+        if(existing){ await supabase.from('grades').update({score, graded_by: profile.id}).eq('id', existing.id) }
+        else { await supabase.from('grades').insert({ student_id: s.id, class_id: selectedClass, subject_id: selectedSubject, academic_year_id: currentYear?.id, term_id: currentTerm?.id, assessment_type: type, title: type, score, max_score:100, graded_by: profile.id }) }
+      }
+    }
+    setSaving(false); alert(`Gradebook saved for ${studentsInClass.length} students`); loadGrades()
+  }
+  return (
+    <div className="space-y-4">
+      <div className="bg-zinc-900/70 border border-white/10 p-4 rounded-[20px] flex flex-col md:flex-row gap-3 md:items-end">
+        <div className="flex-1 grid grid-cols-2 gap-3"><div><label className="text-[10px] text-zinc-500 uppercase">Class</label><select value={selectedClass} onChange={e=>setSelectedClass(e.target.value)} className="w-full bg-zinc-800 border border-white/10 p-3 rounded-xl text-white text-sm mt-1">{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div><label className="text-[10px] text-zinc-500 uppercase">Subject</label><select value={selectedSubject} onChange={e=>setSelectedSubject(e.target.value)} className="w-full bg-zinc-800 border border-white/10 p-3 rounded-xl text-white text-sm mt-1"><option value="">Select Subject</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div></div>
+        <button onClick={saveAll} disabled={saving||!selectedSubject} className="bg-orange-600 text-white px-6 py-3 rounded-xl text-xs font-black disabled:opacity-50 h-fit">{saving?'Saving...':'💾 Save Gradebook'}</button>
+      </div>
+      <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] overflow-auto"><div className="min-w-[700px]"><div className="grid grid-cols-[200px_90px_90px_110px_90px_80px_60px] gap-2 p-3 bg-black/40 text-[10px] uppercase text-zinc-500 font-bold"><div>Student</div><div className="text-center">Test1 20%</div><div className="text-center">Test2 20%</div><div className="text-center">Assign 20%</div><div className="text-center">Final 40%</div><div className="text-center">Final</div><div className="text-center">Grade</div></div><div className="divide-y divide-white/5">{studentsInClass.map(s=>{ const m = marks[s.id]||{}; const final = calcFinal(m); return (<div key={s.id} className="grid grid-cols-[200px_90px_90px_110px_90px_80px_60px] gap-2 p-2 items-center hover:bg-white/[0.03]"><div className="flex items-center gap-2 min-w-0"><div className="w-7 h-7 bg-orange-600/20 rounded-full flex items-center justify-center font-black text-orange-400 text-[10px]">{s.full_name?.[0]||s.email[0]}</div><p className="text-xs font-bold text-white truncate">{s.full_name||s.email.split('@')[0]}</p></div><input type="number" min="0" max="100" value={m.test1??""} onChange={e=>setMark(s.id,'test1',e.target.value)} placeholder="-" className="bg-zinc-800 border border-white/10 p-2 rounded-lg text-center text-white text-sm"/><input type="number" min="0" max="100" value={m.test2??""} onChange={e=>setMark(s.id,'test2',e.target.value)} placeholder="-" className="bg-zinc-800 border border-white/10 p-2 rounded-lg text-center text-white text-sm"/><input type="number" min="0" max="100" value={m.assignment??""} onChange={e=>setMark(s.id,'assignment',e.target.value)} placeholder="-" className="bg-zinc-800 border border-white/10 p-2 rounded-lg text-center text-white text-sm"/><input type="number" min="0" max="100" value={m.final??""} onChange={e=>setMark(s.id,'final',e.target.value)} placeholder="-" className="bg-zinc-800 border border-white/10 p-2 rounded-lg text-center text-white text-sm font-black"/><div className="text-center font-black text-white">{final?`${final}%`:'-'}</div><div className={`text-center font-black px-2 py-1 rounded-full text-xs ${final>=70?'bg-green-500/20 text-green-400':final>=50?'bg-yellow-500/20 text-yellow-400':final?'bg-red-500/20 text-red-400':'bg-zinc-800 text-zinc-500'}`}>{final?getGrade(final):'-'}</div></div>)})}{studentsInClass.length===0 && <p className="p-10 text-center text-zinc-500 text-sm">Select class + subject - needs enrolled students</p>}</div></div></div>
+    </div>
+  )
+}
+function StudentReportCard({profile}){
+  const [grades, setGrades] = useState([]); const [subjects, setSubjects] = useState([])
+  useEffect(()=>{(async()=>{ const {data} = await supabase.from('grades').select('*').eq('student_id', profile.id); if(data) setGrades(data); const {data:sub} = await supabase.from('subjects').select('*'); if(sub) setSubjects(sub) })()},[])
+  const grouped={}; grades.forEach(g=>{ const subj = subjects.find(s=>s.id===g.subject_id)?.name || 'Subject'; if(!grouped[subj]) grouped[subj]=[]; grouped[subj].push(g) })
+  const calc=(list)=>{ const w={test1:20,test2:20,assignment:20,final:40}; let total=0; list.forEach(g=> total += (parseFloat(g.score)||0)*(w[g.assessment_type]||0)/100); return Math.round(total) }
+  const all = Object.values(grouped).map(calc); const avg = all.length? Math.round(all.reduce((a,b)=>a+b,0)/all.length) : 0
+  return (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5"><div className="flex justify-between items-center mb-4"><h4 className="font-black text-white text-lg">📊 My Report - Avg {avg}%</h4><button onClick={()=>window.print()} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">🖨️ Print / PDF</button></div><div className="space-y-2">{Object.entries(grouped).map(([subj, list])=>{ const final=calc(list); const grade = final>=80?'A':final>=70?'B':final>=60?'C':final>=50?'D':'F'; return <div key={subj} className="flex justify-between items-center bg-black/40 p-3 rounded-xl"><div><p className="font-bold text-white text-sm">{subj}</p><p className="text-[11px] text-zinc-500">{list.map(l=> `${l.assessment_type}:${l.score}`).join(' • ')}</p></div><div className="text-right"><p className="font-black text-white">{final}%</p><p className="text-xs text-orange-400">{grade}</p></div></div>})}{grades.length===0 && <p className="text-xs text-zinc-500 text-center py-6">No grades yet - faculty will enter Test1, Test2, Assignment, Final Exam.</p>}</div></div>)
+}
+// ==================== END GRADEBOOK MODULE ====================
 
 function AppWrapper(){
   const [user,setUser]=useState(null)
@@ -224,7 +285,7 @@ function AppWrapper(){
   return (
     <div className="min-h-screen bg-[#080808] text-white">
       <header className="sticky top-0 z-50 bg-black/90 backdrop-blur border-b border-white/10 px-4 py-3 flex justify-between items-center">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black text-white">M</div><span className="font-black text-white">MARS V2</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2 text-white">{profile?.role} • attendance</span></div>
+        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black text-white">M</div><span className="font-black text-white">MARS V2</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2 text-white">{profile?.role} • attendance + gradebook</span></div>
         <div className="flex items-center gap-2"><span className="text-xs text-zinc-400 hidden sm:block">{profile?.email}</span><button onClick={logout} className="bg-zinc-800 text-white px-3 py-1.5 rounded-full text-xs">Logout</button></div>
       </header>
       <main className="p-3 md:p-6">
@@ -242,7 +303,7 @@ function AuthPage({mode,setMode,form,setForm,onSubmit,lockedUntil,submitting}){
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{background:'#080808'}}>
       <div className="p-6 md:p-8 rounded-[24px] w-full max-w-[400px] border border-white/10" style={{background:'#18181b'}}>
-        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School V2</p><p className="text-[10px] text-emerald-400">🛡️ Attendance Live</p></div></div>
+        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School V2</p><p className="text-[10px] text-emerald-400">🛡️ Attendance + Gradebook</p></div></div>
         <h2 className="text-2xl font-black text-white mb-4">{mode==="login"?"Welcome Back":"Create Account"}</h2>
         <form onSubmit={onSubmit} className="space-y-3" noValidate>
           <input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="Email" type="email" required maxLength={254} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/>
@@ -377,7 +438,7 @@ function AdminDash({profile}){
 function FacultyDash({profile}){
   const [classes,setClasses]=useState([]); const [users,setUsers]=useState([]); const [enrollments,setEnrollments]=useState([])
   const [assignments,setAssignments]=useState([]); const [subs,setSubs]=useState([])
-  const [tab,setTab]=useState("attendance") // CHANGED TO ATTENDANCE FIRST
+  const [tab,setTab]=useState("attendance")
   const [form,setForm]=useState({title:"",course:"",due_date:"",class_id:"",file:null})
   const [uploading,setUploading]=useState(false)
   const [grades,setGrades]=useState({}); const [feedbacks,setFeedbacks]=useState({})
@@ -451,11 +512,12 @@ function FacultyDash({profile}){
         <div className="bg-zinc-900/70 border border-orange-500/20 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submissions</p><p className="text-3xl font-black text-orange-400 mt-1">{subs.length}</p></div>
       </div>
       <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full border border-white/10 overflow-x-auto">
-        {[{id:"attendance",l:"📅 Attendance"},{id:"overview",l:"Overview"},{id:"students",l:`My Students (${myStudents.length})`},{id:"create",l:"Create Assignment"},{id:"submissions",l:`Submissions (${subs.length})`}].map(t=>
+        {[{id:"attendance",l:"📅 Attendance"},{id:"gradebook",l:"📊 Gradebook"},{id:"overview",l:"Overview"},{id:"students",l:`My Students (${myStudents.length})`},{id:"create",l:"Create Assignment"},{id:"submissions",l:`Submissions (${subs.length})`}].map(t=>
           <button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>
         )}
       </div>
       {tab==="attendance" && <AttendanceModule profile={profile} classes={myClasses} enrollments={enrollments} users={myStudents} />}
+      {tab==="gradebook" && <GradebookModule profile={profile} classes={myClasses} enrollments={enrollments} users={myStudents} />}
       {tab==="overview" && (
         <div className="grid lg:grid-cols-3 gap-5">
           <div className="lg:col-span-2 space-y-4">
@@ -568,8 +630,8 @@ function StudentDash({profile}){
         <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submitted</p><p className="text-3xl font-black text-green-400 mt-1">{mySubs.length}</p></div>
       </div>
 
-      {/* NEW STUDENT ATTENDANCE */}
       <StudentAttendanceView profile={profile} />
+      <StudentReportCard profile={profile} />
 
       <div className="grid lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2 space-y-3">
