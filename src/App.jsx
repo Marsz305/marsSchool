@@ -149,7 +149,7 @@ function StudentAttendanceView({profile}){
   )
 }
 
-// ==================== GRADEBOOK MODULE (NEW) ====================
+// ==================== GRADEBOOK MODULE ====================
 function GradebookModule({ profile, classes, enrollments, users }){
   const [selectedClass, setSelectedClass] = useState(classes[0]?.id || "")
   const [subjects, setSubjects] = useState([])
@@ -201,13 +201,71 @@ function GradebookModule({ profile, classes, enrollments, users }){
     </div>
   )
 }
+
+// FIXED REPORT CARD - reads BOTH grades table AND submissions grades
 function StudentReportCard({profile}){
-  const [grades, setGrades] = useState([]); const [subjects, setSubjects] = useState([])
-  useEffect(()=>{(async()=>{ const {data} = await supabase.from('grades').select('*').eq('student_id', profile.id); if(data) setGrades(data); const {data:sub} = await supabase.from('subjects').select('*'); if(sub) setSubjects(sub) })()},[])
-  const grouped={}; grades.forEach(g=>{ const subj = subjects.find(s=>s.id===g.subject_id)?.name || 'Subject'; if(!grouped[subj]) grouped[subj]=[]; grouped[subj].push(g) })
-  const calc=(list)=>{ const w={test1:20,test2:20,assignment:20,final:40}; let total=0; list.forEach(g=> total += (parseFloat(g.score)||0)*(w[g.assessment_type]||0)/100); return Math.round(total) }
-  const all = Object.values(grouped).map(calc); const avg = all.length? Math.round(all.reduce((a,b)=>a+b,0)/all.length) : 0
-  return (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5"><div className="flex justify-between items-center mb-4"><h4 className="font-black text-white text-lg">📊 My Report - Avg {avg}%</h4><button onClick={()=>window.print()} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">🖨️ Print / PDF</button></div><div className="space-y-2">{Object.entries(grouped).map(([subj, list])=>{ const final=calc(list); const grade = final>=80?'A':final>=70?'B':final>=60?'C':final>=50?'D':'F'; return <div key={subj} className="flex justify-between items-center bg-black/40 p-3 rounded-xl"><div><p className="font-bold text-white text-sm">{subj}</p><p className="text-[11px] text-zinc-500">{list.map(l=> `${l.assessment_type}:${l.score}`).join(' • ')}</p></div><div className="text-right"><p className="font-black text-white">{final}%</p><p className="text-xs text-orange-400">{grade}</p></div></div>})}{grades.length===0 && <p className="text-xs text-zinc-500 text-center py-6">No grades yet - faculty will enter Test1, Test2, Assignment, Final Exam.</p>}</div></div>)
+  const [grades, setGrades] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [subs, setSubs] = useState([])
+  const [assignments, setAssignments] = useState([])
+
+  useEffect(()=>{(async()=>{
+    const {data} = await supabase.from('grades').select('*').eq('student_id', profile.id); if(data) setGrades(data)
+    const {data:sub} = await supabase.from('subjects').select('*'); if(sub) setSubjects(sub)
+    const {data:s} = await supabase.from('submissions').select('*').eq('student_id', profile.id).not('grade','is',null); if(s) setSubs(s)
+    const {data:a} = await supabase.from('assignments').select('*'); if(a) setAssignments(a)
+  })()},[])
+
+  const grouped={}
+  grades.forEach(g=>{
+    const subj = subjects.find(s=>s.id===g.subject_id)?.name || 'Subject'
+    if(!grouped[subj]) grouped[subj]=[]
+    grouped[subj].push(g)
+  })
+
+  const calc=(list)=>{
+    const w={test1:20,test2:20,assignment:20,final:40}
+    let total=0
+    list.forEach(g=> total += (parseFloat(g.score)||0)*(w[g.assessment_type]||0)/100)
+    return Math.round(total)
+  }
+
+  // FALLBACK: if gradebook empty, use submissions grades (your current case)
+  let displayGroups = {...grouped}
+  let isFallback = false
+  if(Object.keys(grouped).length===0 && subs.length>0){
+    isFallback = true
+    displayGroups = {}
+    subs.forEach(s=>{
+      const ass = assignments.find(a=>a.id===s.assignment_id)
+      const subjName = ass?.course || ass?.title || 'General'
+      if(!displayGroups[subjName]) displayGroups[subjName]=[]
+      const num = parseFloat(String(s.grade).replace(/[^0-9.]/g,'')) || 0
+      displayGroups[subjName].push({assessment_type:'final', score:num, title:subjName})
+    })
+  }
+
+  const calcFallback = (list)=> Math.round(list.reduce((a,b)=>a+(parseFloat(b.score)||0),0)/list.length)
+
+  const all = Object.values(displayGroups).map(g=> isFallback? calcFallback(g) : calc(g))
+  const avg = all.length? Math.round(all.reduce((a,b)=>a+b,0)/all.length) : 0
+
+  return (
+    <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5">
+      <div className="flex justify-between items-center mb-4">
+        <h4 className="font-black text-white text-lg">📊 My Report - Avg {avg}% {isFallback&&<span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full ml-2">From Submissions</span>}</h4>
+        <button onClick={()=>window.print()} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">🖨️ Print / PDF</button>
+      </div>
+      <div className="space-y-2">
+        {Object.entries(displayGroups).map(([subj, list])=>{
+          const final = isFallback? calcFallback(list) : calc(list)
+          const grade = final>=80?'A':final>=70?'B':final>=60?'C':final>=50?'D':'F'
+          return <div key={subj} className="flex justify-between items-center bg-black/40 p-3 rounded-xl"><div><p className="font-bold text-white text-sm">{subj}</p><p className="text-[11px] text-zinc-500">{list.map(l=> `${l.assessment_type}:${l.score}`).join(' • ')}</p></div><div className="text-right"><p className="font-black text-white">{final}%</p><p className="text-xs text-orange-400">{grade}</p></div></div>
+        })}
+        {Object.keys(displayGroups).length===0 && <p className="text-xs text-zinc-500 text-center py-6">No grades yet - faculty will enter Test1, Test2, Assignment, Final Exam.</p>}
+      </div>
+    </div>
+  )
 }
 // ==================== END GRADEBOOK MODULE ====================
 
