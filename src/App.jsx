@@ -6,9 +6,7 @@ const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env
 
 const sanitizeInput = (str) => {
   if (!str) return ""
-  let s = String(str).trim().slice(0, 254)
-  s = s.split("<").join("").split(">").join("").split("/").join("")
-  return s
+  return String(str).trim().slice(0, 254).replace(/[<>]/g, "")
 }
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)
 
@@ -86,7 +84,7 @@ function AppWrapper(){
   return (
     <div className="min-h-screen bg-[#080808] text-white">
       <header className="sticky top-0 z-50 bg-black/90 backdrop-blur border-b border-white/10 px-4 py-3 flex justify-between items-center">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black text-white">M</div><span className="font-black text-white">MARS</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2 text-white">{profile?.role}</span></div>
+        <div className="flex items-center gap-2"><div className="w-8 h-8 bg-orange-600 rounded-lg flex items-center justify-center font-black text-white">M</div><span className="font-black text-white">MARS V2</span><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full ml-2 text-white">{profile?.role} • enrollments</span></div>
         <div className="flex items-center gap-2"><span className="text-xs text-zinc-400 hidden sm:block">{profile?.email}</span><button onClick={logout} className="bg-zinc-800 text-white px-3 py-1.5 rounded-full text-xs">Logout</button></div>
       </header>
       <main className="p-3 md:p-6">
@@ -101,26 +99,16 @@ function AppWrapper(){
 
 function AuthPage({mode,setMode,form,setForm,onSubmit,lockedUntil,submitting}){
   const isLocked=lockedUntil && Date.now()<lockedUntil
-  const emailClean=sanitizeInput(form.email).toLowerCase()
-  const nameClean=sanitizeInput(form.full_name)
-  const isEmailDirty=form.email && form.email!==emailClean
-  const isNameDirty=form.full_name && form.full_name!==nameClean
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{background:'#080808'}}>
       <div className="p-6 md:p-8 rounded-[24px] w-full max-w-[400px] border border-white/10" style={{background:'#18181b'}}>
-        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School</p><p className="text-[10px] text-emerald-400">🛡️ Sanitized & Secure</p></div></div>
+        <div className="flex items-center gap-2 mb-6"><div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center font-black text-white">M</div><div><p className="font-black text-white">MARS E-School V2</p><p className="text-[10px] text-emerald-400">🛡️ Enrollments based</p></div></div>
         <h2 className="text-2xl font-black text-white mb-4">{mode==="login"?"Welcome Back":"Create Account"}</h2>
         <form onSubmit={onSubmit} className="space-y-3" noValidate>
-          <div>
-            <input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="Email" type="email" required maxLength={254} className={`w-full bg-zinc-800 border p-3.5 rounded-2xl text-white placeholder:text-zinc-500 ${isEmailDirty?'border-orange-500/50':'border-white/10'}`}/>
-            {isEmailDirty && <div className="mt-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full w-fit"><span className="text-[10px] text-emerald-400 font-bold">Sanitized → {emailClean || 'invalid'}</span></div>}
-          </div>
+          <input value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="Email" type="email" required maxLength={254} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/>
           <input value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Password" type="password" required maxLength={72} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/>
           {mode==="signup" && <>
-            <div>
-              <input value={form.full_name} onChange={e=>setForm({...form,full_name:e.target.value})} placeholder="Full Name" required maxLength={50} className={`w-full bg-zinc-800 border p-3.5 rounded-2xl text-white placeholder:text-zinc-500 ${isNameDirty?'border-orange-500/50':'border-white/10'}`}/>
-              {isNameDirty && <div className="mt-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full w-fit"><span className="text-[10px] text-emerald-400 font-bold">Sanitized → {nameClean}</span></div>}
-            </div>
+            <input value={form.full_name} onChange={e=>setForm({...form,full_name:e.target.value})} placeholder="Full Name" required maxLength={50} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white placeholder:text-zinc-500"/>
             <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl text-white"><option value="student">Student</option><option value="faculty">Faculty / Teacher</option><option value="parent">Parent</option></select>
           </>}
           <button disabled={submitting||isLocked} type="submit" className="w-full bg-orange-600 py-3.5 rounded-2xl font-black text-white disabled:opacity-50">{submitting?"Please wait...":isLocked?"Locked - Wait 30s":mode==="login"?"Login":"Sign Up"}</button>
@@ -132,51 +120,84 @@ function AuthPage({mode,setMode,form,setForm,onSubmit,lockedUntil,submitting}){
 }
 
 function AdminDash({profile}){
-  const [users,setUsers]=useState([]); const [classes,setClasses]=useState([])
+  const [users,setUsers]=useState([]); const [classes,setClasses]=useState([]); const [enrollments,setEnrollments]=useState([])
   const [tab,setTab]=useState("classes")
   const [classForm,setClassForm]=useState({name:"",faculty_id:"",student_ids:[]})
   const [editClassId,setEditClassId]=useState(null)
   const [addStudentIds,setAddStudentIds]=useState([])
+  const [currentYear,setCurrentYear]=useState(null)
+  const [currentTerm,setCurrentTerm]=useState(null)
+
   const load=async()=>{
     const {data:u}=await supabase.from('users').select('*').order('created_at',{ascending:false}); if(u) setUsers(u)
     const {data:c}=await supabase.from('classes').select('*').order('name'); if(c) setClasses(c)
+    const {data:e}=await supabase.from('enrollments').select('*'); if(e) setEnrollments(e)
+    const {data:y}=await supabase.from('academic_years').select('*').eq('is_current',true).single(); if(y) setCurrentYear(y)
+    const {data:t}=await supabase.from('terms').select('*').limit(1).single(); if(t) setCurrentTerm(t)
   }
   useEffect(()=>{load()},[])
   const facultyList=users.filter(u=>["faculty","teacher"].includes((u.role||'').toLowerCase().trim()))
   const studentList=users.filter(u=>(u.role||'').toLowerCase()==="student")
   const pending=users.filter(u=>!u.is_active)
+
+  const getStudentsForClass=(classId)=>{
+    const studentIds=enrollments.filter(e=>e.class_id===classId).map(e=>e.student_id)
+    return users.filter(u=>studentIds.includes(u.id))
+  }
+
   const toggleStudentInForm=(id)=> setClassForm(prev=> prev.student_ids.includes(id)? {...prev, student_ids: prev.student_ids.filter(s=>s!==id)} : {...prev, student_ids: [...prev.student_ids, id]} )
+
   const createClass=async()=>{
     const cleanName=sanitizeInput(classForm.name)
     if(!cleanName) return alert("Name needed")
-    const {data:cls,error}=await supabase.from('classes').insert({name:cleanName,faculty_id:classForm.faculty_id||null}).select().single()
+    const {data:cls,error}=await supabase.from('classes').insert({name:cleanName,faculty_id:classForm.faculty_id||null, academic_year_id: currentYear?.id || null}).select().single()
     if(error) return alert(error.message)
-    if(classForm.student_ids.length>0) await supabase.from('users').update({class_id:cls.id}).in('id',classForm.student_ids)
+    // V2: INSERT into enrollments instead of users.class_id
+    if(classForm.student_ids.length>0){
+      const rows=classForm.student_ids.map(sid=>({student_id:sid, class_id:cls.id, academic_year_id: currentYear?.id || null, term_id: currentTerm?.id || null, status:'active'}))
+      const {error:eErr}=await supabase.from('enrollments').insert(rows)
+      if(eErr) alert("Enroll error: "+eErr.message)
+      // Keep backward compat: also update users.class_id for old code
+      await supabase.from('users').update({class_id:cls.id}).in('id',classForm.student_ids)
+    }
     setClassForm({name:"",faculty_id:"",student_ids:[]}); load()
   }
+
   const addStudentsToClass=async(classId)=>{
     if(addStudentIds.length===0) return
+    const rows=addStudentIds.map(sid=>({student_id:sid, class_id:classId, academic_year_id: currentYear?.id || null, term_id: currentTerm?.id || null, status:'active'}))
+    const {error}=await supabase.from('enrollments').insert(rows)
+    if(error) return alert(error.message)
+    // backward compat
     await supabase.from('users').update({class_id:classId}).in('id',addStudentIds)
     setAddStudentIds([]); setEditClassId(null); load()
   }
+
+  const removeStudentFromClass=async(classId,studentId)=>{
+    await supabase.from('enrollments').delete().eq('class_id',classId).eq('student_id',studentId)
+    await supabase.from('users').update({class_id:null}).eq('id',studentId)
+    load()
+  }
+
   const exportClasses=()=>{
     const rows=[]
     classes.forEach(c=>{
       const faculty=users.find(u=>u.id===c.faculty_id)
-      const students=users.filter(u=>u.class_id===c.id)
+      const students=getStudentsForClass(c.id)
       if(students.length===0) rows.push({Class:c.name,Faculty:faculty?.email||'No faculty',Student_Email:'No students'})
       else students.forEach(s=>rows.push({Class:c.name,Faculty:faculty?.email||'No faculty',Student_Email:s.email,Student_Name:s.full_name}))
     })
-    const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Roster"); XLSX.writeFile(wb,`MARS-Roster-${new Date().toISOString().slice(0,10)}.xlsx`)
+    const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Roster"); XLSX.writeFile(wb,`MARS-Roster-V2-${new Date().toISOString().slice(0,10)}.xlsx`)
   }
+
   return (
     <div className="space-y-6 max-w-[1300px] mx-auto w-full">
-      <div className="flex gap-2 flex-wrap"><button onClick={exportClasses} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black">🏫 Export Classes + Roster</button></div>
+      <div className="flex gap-2 flex-wrap"><button onClick={exportClasses} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black">🏫 Export Classes + Roster V2</button><span className="text-xs text-zinc-500 bg-zinc-900 px-3 py-2 rounded-full border border-white/10">Year: {currentYear?.name||'2026'} | Term: {currentTerm?.name||'Term 3'} | Enrollments: {enrollments.length}</span></div>
       <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full overflow-x-auto border border-white/10">{[{id:"classes",l:`Classes (${classes.length})`},{id:"users",l:"All Users"},{id:"approvals",l:`Approvals (${pending.length})`}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>)}</div>
       {tab==="classes" && (
         <div className="space-y-6">
           <div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px]">
-            <h3 className="font-black mb-4 text-white">Create Class + Assign Faculty + Students</h3>
+            <h3 className="font-black mb-4 text-white">Create Class + Assign Faculty + Students (V2 - uses enrollments)</h3>
             <input value={classForm.name} onChange={e=>setClassForm({...classForm,name:e.target.value})} placeholder="e.g Form 1A" maxLength={30} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white placeholder:text-zinc-500"/>
             <select value={classForm.faculty_id} onChange={e=>setClassForm({...classForm,faculty_id:e.target.value})} className="w-full bg-zinc-800 border border-white/10 p-3.5 rounded-2xl mb-3 text-white"><option value="">Select Faculty (Teacher)</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.full_name||f.email} - {f.email}</option>)}</select>
             <p className="text-xs text-zinc-400 mb-2">Select Students ({classForm.student_ids.length} selected):</p>
@@ -186,21 +207,22 @@ function AdminDash({profile}){
             <button onClick={createClass} className="w-full bg-orange-600 py-3.5 rounded-2xl font-black text-white">Create Class with {classForm.student_ids.length} Students</button>
           </div>
           <div className="grid gap-4">{classes.map(c=>{
-            const faculty=users.find(u=>u.id===c.faculty_id); const students=users.filter(u=>u.class_id===c.id); const isEditing=editClassId===c.id
+            const faculty=users.find(u=>u.id===c.faculty_id); const students=getStudentsForClass(c.id); const isEditing=editClassId===c.id
             return (
               <div key={c.id} className="bg-zinc-900/80 border border-white/10 p-4 md:p-5 rounded-[24px]">
                 <div className="flex flex-col md:flex-row justify-between gap-3">
-                  <div><p className="font-black text-white text-lg">{c.name}</p><p className="text-xs text-zinc-400">Faculty: <span className="text-white">{faculty?.email||'Not assigned'}</span> • {students.length} students</p></div>
+                  <div><p className="font-black text-white text-lg">{c.name}</p><p className="text-xs text-zinc-400">Faculty: <span className="text-white">{faculty?.email||'Not assigned'}</span> • {students.length} students (via enrollments)</p></div>
                   <div className="flex gap-2 shrink-0 flex-wrap">
                     <button onClick={()=>{ setEditClassId(isEditing?null:c.id); setAddStudentIds([])}} className="bg-zinc-800 text-white px-3 py-2 rounded-full text-xs font-bold">{isEditing?'Close':'Add Students'}</button>
                     <select value={c.faculty_id||''} onChange={async(e)=>{await supabase.from('classes').update({faculty_id:e.target.value||null}).eq('id',c.id); load()}} className="bg-zinc-800 border border-white/10 p-2 rounded-xl text-xs text-white"><option value="">No Faculty</option>{facultyList.map(f=><option key={f.id} value={f.id}>{f.email}</option>)}</select>
-                    <button onClick={async()=>{if(!confirm('Delete class?'))return; await supabase.from('users').update({class_id:null}).eq('class_id',c.id); await supabase.from('classes').delete().eq('id',c.id); load()}} className="bg-red-500/20 text-red-400 px-3 py-2 rounded-full text-xs">Delete</button>
+                    <button onClick={async()=>{if(!confirm('Delete class?'))return; await supabase.from('enrollments').delete().eq('class_id',c.id); await supabase.from('classes').delete().eq('id',c.id); load()}} className="bg-red-500/20 text-red-400 px-3 py-2 rounded-full text-xs">Delete</button>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">{students.map(s=><span key={s.id} className="bg-black/50 border border-white/10 px-2.5 py-1 rounded-full text-[11px] text-white flex items-center gap-1.5">{s.email}<button onClick={async()=>{await supabase.from('users').update({class_id:null}).eq('id',s.id); load()}} className="text-red-400 font-bold ml-1">×</button></span>)}{students.length===0&&<span className="text-xs text-zinc-500">No students yet</span>}</div>
+                <div className="mt-3 flex flex-wrap gap-1.5">{students.map(s=><span key={s.id} className="bg-black/50 border border-white/10 px-2.5 py-1 rounded-full text-[11px] text-white flex items-center gap-1.5">{s.email}<button onClick={()=>removeStudentFromClass(c.id,s.id)} className="text-red-400 font-bold ml-1">×</button></span>)}{students.length===0&&<span className="text-xs text-zinc-500">No students yet</span>}</div>
                 {isEditing && (
                   <div className="mt-4 bg-black/40 border border-white/5 rounded-2xl p-3">
-                    <div className="max-h-[200px] overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-2">{users.filter(u=>(u.role||'').toLowerCase()==='student' &&!u.class_id).map(s=>{const checked=addStudentIds.includes(s.id); return <label key={s.id} className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer border ${checked?'bg-orange-600/20 border-orange-500/30':'bg-zinc-800/50 border-white/5'}`}><input type="checkbox" checked={checked} onChange={()=>setAddStudentIds(prev=> prev.includes(s.id)? prev.filter(x=>x!==s.id) : [...prev, s.id])}/><span className="text-xs text-white truncate">{s.email}</span></label>})}</div>
+                    <p className="text-xs text-zinc-400 mb-2">Only students not enrolled yet:</p>
+                    <div className="max-h-[200px] overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-2">{users.filter(u=>(u.role||'').toLowerCase()==='student' &&!enrollments.some(e=>e.student_id===u.id && e.class_id===c.id)).map(s=>{const checked=addStudentIds.includes(s.id); return <label key={s.id} className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer border ${checked?'bg-orange-600/20 border-orange-500/30':'bg-zinc-800/50 border-white/5'}`}><input type="checkbox" checked={checked} onChange={()=>setAddStudentIds(prev=> prev.includes(s.id)? prev.filter(x=>x!==s.id) : [...prev, s.id])}/><span className="text-xs text-white truncate">{s.email}</span></label>})}</div>
                     <button onClick={()=>addStudentsToClass(c.id)} className="mt-3 w-full bg-white text-black py-2.5 rounded-xl text-xs font-black">Add {addStudentIds.length} Selected to Class</button>
                   </div>
                 )}
@@ -209,14 +231,14 @@ function AdminDash({profile}){
           })}</div>
         </div>
       )}
-      {tab==="users" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><p className="text-white font-black">All Users ({users.length})</p></div>)}
+      {tab==="users" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><p className="text-white font-black">All Users ({users.length})</p><p className="text-xs text-zinc-500 mt-2">V2 now reads students from enrollments table, not users.class_id</p></div>)}
       {tab==="approvals" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><div className="grid gap-3">{users.filter(u=>!u.is_active).map(u=>(<div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between"><p className="font-bold text-white">{u.email}</p><button onClick={async()=>{await supabase.from('users').update({is_active:true}).eq('id',u.id); load()}} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold">Approve</button></div>))}</div></div>)}
     </div>
   )
 }
 
 function FacultyDash({profile}){
-  const [classes,setClasses]=useState([]); const [users,setUsers]=useState([])
+  const [classes,setClasses]=useState([]); const [users,setUsers]=useState([]); const [enrollments,setEnrollments]=useState([])
   const [assignments,setAssignments]=useState([]); const [subs,setSubs]=useState([])
   const [tab,setTab]=useState("overview")
   const [form,setForm]=useState({title:"",course:"",due_date:"",class_id:"",file:null})
@@ -224,29 +246,41 @@ function FacultyDash({profile}){
   const [grades,setGrades]=useState({}); const [feedbacks,setFeedbacks]=useState({})
 
   const load=async()=>{
-    const cRes=await supabase.from('classes').select('*'); if(cRes.data) setClasses(cRes.data)
-    const uRes=await supabase.from('users').select('*'); if(uRes.data) setUsers(uRes.data)
-    const aRes=await supabase.from('assignments').select('*').order('created_at',{ascending:false}); if(aRes.data) setAssignments(aRes.data)
-    const sRes=await supabase.from('submissions').select('*')
-    if(sRes.data){
-      const enriched=sRes.data.map(sub=>{
-        const stu=(uRes.data||[]).find(u=>u.id===sub.student_id)
-        const ass=(aRes.data||[]).find(a=>a.id===sub.assignment_id)
-        return {...sub,_student:stu,_assignment:ass}
-      })
-      const myClassIds=(cRes.data||[]).filter(x=>x.faculty_id===profile.id).map(x=>x.id)
-      const filtered=enriched.filter(s=>{
-        return myClassIds.includes(s._student?.class_id) || myClassIds.includes(s._assignment?.class_id) || s._assignment?.created_by===profile.id
-      })
-      setSubs(filtered)
+    const cRes=await supabase.from('classes').select('*').eq('faculty_id', profile.id); if(cRes.data) setClasses(cRes.data)
+    const myClassIds=(cRes.data||[]).map(c=>c.id)
+    if(myClassIds.length>0){
+      const eRes=await supabase.from('enrollments').select('*').in('class_id', myClassIds); if(eRes.data) setEnrollments(eRes.data)
+      const studentIds=(eRes.data||[]).map(e=>e.student_id)
+      if(studentIds.length>0){
+        const uRes=await supabase.from('users').select('*').in('id', studentIds); if(uRes.data) setUsers(uRes.data)
+      }
+    }
+    const aRes=await supabase.from('assignments').select('*').eq('created_by', profile.id).order('created_at',{ascending:false}); if(aRes.data) setAssignments(aRes.data)
+    // Get submissions for my assignments OR my classes
+    if(myClassIds.length>0){
+      const aAll=await supabase.from('assignments').select('*').in('class_id', myClassIds)
+      const allAssignmentIds=[...(aRes.data||[]).map(a=>a.id),...(aAll.data||[]).map(a=>a.id)]
+      if(allAssignmentIds.length>0){
+        const sRes=await supabase.from('submissions').select('*').in('assignment_id', allAssignmentIds)
+        if(sRes.data){
+          // enrich
+          const allUsers=await supabase.from('users').select('*')
+          const allAssignments=await supabase.from('assignments').select('*')
+          const enriched=sRes.data.map(sub=>{
+            const stu=(allUsers.data||[]).find(u=>u.id===sub.student_id)
+            const ass=(allAssignments.data||[]).find(a=>a.id===sub.assignment_id)
+            return {...sub,_student:stu,_assignment:ass}
+          })
+          setSubs(enriched)
+        }
+      }
     }
   }
   useEffect(()=>{load()},[])
 
-  const myClasses=classes.filter(c=>c.faculty_id===profile.id)
-  const myClassIds=myClasses.map(c=>c.id)
-  const myStudents=users.filter(u=>myClassIds.includes(u.class_id) && u.role==="student")
-  const myAssignments=assignments.filter(a=>a.created_by===profile.id || myClassIds.includes(a.class_id))
+  const myClasses=classes
+  const myStudents=users
+  const myAssignments=assignments
 
   const createAssignment=async()=>{
     if(!form.title||!form.due_date) return alert("Title & Due date needed")
@@ -258,7 +292,7 @@ function FacultyDash({profile}){
       if(up.error){ alert(up.error.message); setUploading(false); return }
       url=supabase.storage.from('mars-files').getPublicUrl(path).data.publicUrl
     }
-    const {error}=await supabase.from('assignments').insert({title:sanitizeInput(form.title),course:sanitizeInput(form.course),due_date:form.due_date,class_id:form.class_id||myClassIds[0]||null,attachment_url:url,created_by:profile.id})
+    const {error}=await supabase.from('assignments').insert({title:sanitizeInput(form.title),course:sanitizeInput(form.course),due_date:form.due_date,class_id:form.class_id||myClasses[0]?.id||null,attachment_url:url,created_by:profile.id})
     if(error) alert(error.message)
     else { setForm({title:"",course:"",due_date:"",class_id:"",file:null}); load() }
     setUploading(false)
@@ -277,33 +311,31 @@ function FacultyDash({profile}){
     <div className="max-w-[1300px] mx-auto space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-gradient-to-br from-zinc-900 to-zinc-900/50 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase tracking-widest text-zinc-500">My Classes</p><p className="text-3xl font-black text-white mt-1">{myClasses.length}</p><p className="text-[11px] text-zinc-400 mt-1 truncate">{myClasses.map(c=>c.name).join(', ')||'None'}</p></div>
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">My Students</p><p className="text-3xl font-black text-white mt-1">{myStudents.length}</p></div>
+        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">My Students (enrollments)</p><p className="text-3xl font-black text-white mt-1">{myStudents.length}</p></div>
         <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Assignments</p><p className="text-3xl font-black text-white mt-1">{myAssignments.length}</p></div>
         <div className="bg-zinc-900/70 border border-orange-500/20 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submissions</p><p className="text-3xl font-black text-orange-400 mt-1">{subs.length}</p></div>
       </div>
-
       <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full border border-white/10 overflow-x-auto">
         {[{id:"overview",l:"Overview"},{id:"students",l:`My Students (${myStudents.length})`},{id:"create",l:"Create Assignment"},{id:"submissions",l:`Submissions (${subs.length})`}].map(t=>
           <button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>
         )}
       </div>
-
       {tab==="overview" && (
         <div className="grid lg:grid-cols-3 gap-5">
           <div className="lg:col-span-2 space-y-4">
             <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
-              <h3 className="font-black text-white mb-4">My Classes Allocated by Admin</h3>
+              <h3 className="font-black text-white mb-4">My Classes Allocated by Admin (V2)</h3>
               <div className="grid sm:grid-cols-2 gap-3">
                 {myClasses.map(c=>{
-                  const count=users.filter(u=>u.class_id===c.id).length
-                  return <div key={c.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl"><p className="font-black text-white">{c.name}</p><p className="text-xs text-zinc-500 mt-1">{count} students</p><div className="flex flex-wrap gap-1 mt-2">{users.filter(u=>u.class_id===c.id).slice(0,3).map(s=><span key={s.id} className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white">{s.email.split('@')[0]}</span>)}</div></div>
+                  const count=enrollments.filter(e=>e.class_id===c.id).length
+                  return <div key={c.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl"><p className="font-black text-white">{c.name}</p><p className="text-xs text-zinc-500 mt-1">{count} students via enrollments</p></div>
                 })}
                 {myClasses.length===0 && <p className="text-sm text-zinc-500">No class allocated yet. Admin will allocate you.</p>}
               </div>
             </div>
             <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
               <h3 className="font-black text-white mb-3">Recent Assignments</h3>
-              <div className="space-y-2">{myAssignments.slice(0,5).map(a=><div key={a.id} className="bg-black/40 p-3 rounded-xl flex justify-between"><div><p className="font-bold text-sm text-white">{a.title}</p><p className="text-[11px] text-zinc-500">{a.course} • Due {new Date(a.due_date).toLocaleDateString()}</p></div><span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full h-fit">{classes.find(c=>c.id===a.class_id)?.name||'All'}</span></div>)}</div>
+              <div className="space-y-2">{myAssignments.slice(0,5).map(a=><div key={a.id} className="bg-black/40 p-3 rounded-xl flex justify-between"><div><p className="font-bold text-sm text-white">{a.title}</p><p className="text-[11px] text-zinc-500">{a.course} • Due {new Date(a.due_date).toLocaleDateString()}</p></div><span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-1 rounded-full h-fit">{myClasses.find(c=>c.id===a.class_id)?.name||'All'}</span></div>)}</div>
             </div>
           </div>
           <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6 h-fit">
@@ -319,14 +351,12 @@ function FacultyDash({profile}){
           </div>
         </div>
       )}
-
       {tab==="students" && (
         <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
-          <div className="flex justify-between items-center mb-4"><h3 className="font-black text-white text-lg">Students Allocated to Me</h3><button onClick={()=>{const rows=myStudents.map(s=>({Email:s.email,Name:s.full_name,Class:classes.find(c=>c.id===s.class_id)?.name||'',Status:s.is_active?'Active':'Pending'})); const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"MyStudents"); XLSX.writeFile(wb,`My-Students-${new Date().toISOString().slice(0,10)}.xlsx`)}} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">Export My Students</button></div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">{myStudents.map(s=><div key={s.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex gap-3 items-center"><div className="w-10 h-10 bg-orange-600/20 rounded-full flex items-center justify-center font-black text-orange-400">{s.full_name?.[0]||s.email[0].toUpperCase()}</div><div className="min-w-0"><p className="font-bold text-sm text-white truncate">{s.full_name||s.email}</p><p className="text-[11px] text-zinc-500 truncate">{s.email}</p><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full mt-1 inline-block">{classes.find(c=>c.id===s.class_id)?.name||'No Class'}</span></div></div>)}{myStudents.length===0 && <p className="text-zinc-500 text-sm col-span-3">No students allocated yet.</p>}</div>
+          <div className="flex justify-between items-center mb-4"><h3 className="font-black text-white text-lg">Students Allocated to Me (via enrollments)</h3><button onClick={()=>{const rows=myStudents.map(s=>({Email:s.email,Name:s.full_name,Class:myClasses.find(c=>enrollments.find(e=>e.class_id===c.id && e.student_id===s.id))?.name||'',Status:s.is_active?'Active':'Pending'})); const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"MyStudents"); XLSX.writeFile(wb,`My-Students-V2-${new Date().toISOString().slice(0,10)}.xlsx`)}} className="bg-white text-black px-4 py-2 rounded-full text-xs font-black">Export My Students</button></div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">{myStudents.map(s=><div key={s.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex gap-3 items-center"><div className="w-10 h-10 bg-orange-600/20 rounded-full flex items-center justify-center font-black text-orange-400">{s.full_name?.[0]||s.email[0].toUpperCase()}</div><div className="min-w-0"><p className="font-bold text-sm text-white truncate">{s.full_name||s.email}</p><p className="text-[11px] text-zinc-500 truncate">{s.email}</p><span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full mt-1 inline-block">{myClasses.find(c=>enrollments.some(e=>e.class_id===c.id && e.student_id===s.id))?.name||'No Class'}</span></div></div>)}{myStudents.length===0 && <p className="text-zinc-500 text-sm col-span-3">No students allocated yet - admin must enroll students via enrollments.</p>}</div>
         </div>
       )}
-
       {tab==="create" && (
         <div className="max-w-[600px] mx-auto bg-zinc-900/70 border border-orange-500/20 p-6 rounded-[24px]">
           <h3 className="font-black text-white text-xl mb-4">Create Assignment for My Classes</h3>
@@ -339,7 +369,6 @@ function FacultyDash({profile}){
           </div>
         </div>
       )}
-
       {tab==="submissions" && (
         <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
           <h3 className="font-black text-white text-lg mb-4">Submissions Received ({subs.length}) - Grade + Comment</h3>
@@ -367,14 +396,22 @@ function FacultyDash({profile}){
 }
 
 function StudentDash({profile}){
-  const [assignments,setAssignments]=useState([]); const [mySubs,setMySubs]=useState([]); const [myClass,setMyClass]=useState(null); const [myFaculty,setMyFaculty]=useState(null)
-  const [tab,setTab]=useState("assignments")
+  const [assignments,setAssignments]=useState([]); const [mySubs,setMySubs]=useState([]); const [myClass,setMyClass]=useState(null); const [myFaculty,setMyFaculty]=useState(null); const [enrollment,setEnrollment]=useState(null)
   useEffect(()=>{(async()=>{
-    const cls=await supabase.from('classes').select('*').eq('id',profile.class_id).single(); if(cls.data) setMyClass(cls.data)
-    if(cls.data?.faculty_id){ const fac=await supabase.from('users').select('*').eq('id',cls.data.faculty_id).single(); if(fac.data) setMyFaculty(fac.data) }
-    let q=supabase.from('assignments').select('*').order('due_date',{ascending:true})
-    if(profile.class_id) q=q.or(`class_id.eq.${profile.class_id},class_id.is.null`)
-    const a=await q; if(a.data) setAssignments(a.data)
+    // V2: get class via enrollments
+    const {data:enroll}=await supabase.from('enrollments').select('*').eq('student_id', profile.id).eq('status','active').order('created_at',{ascending:false}).limit(1).single()
+    if(enroll){
+      setEnrollment(enroll)
+      const cls=await supabase.from('classes').select('*').eq('id',enroll.class_id).single(); if(cls.data) setMyClass(cls.data)
+      if(cls.data?.faculty_id){ const fac=await supabase.from('users').select('*').eq('id',cls.data.faculty_id).single(); if(fac.data) setMyFaculty(fac.data) }
+      const a=await supabase.from('assignments').select('*').or(`class_id.eq.${enroll.class_id},class_id.is.null`).order('due_date',{ascending:true}); if(a.data) setAssignments(a.data)
+    } else {
+      // fallback to old users.class_id for backward compat
+      if(profile.class_id){
+        const cls=await supabase.from('classes').select('*').eq('id',profile.class_id).single(); if(cls.data) setMyClass(cls.data)
+        const a=await supabase.from('assignments').select('*').or(`class_id.eq.${profile.class_id},class_id.is.null`).order('due_date',{ascending:true}); if(a.data) setAssignments(a.data)
+      }
+    }
     const s=await supabase.from('submissions').select('*').eq('student_id',profile.id); if(s.data) setMySubs(s.data)
   })()},[profile])
 
@@ -389,99 +426,55 @@ function StudentDash({profile}){
     const s=await supabase.from('submissions').select('*').eq('student_id',profile.id); if(s.data) setMySubs(s.data)
   }
 
-  const pending=assignments.filter(a=>!mySubs.find(s=>s.assignment_id===a.id))
-  const done=mySubs.length
-
   return (
     <div className="max-w-[1100px] mx-auto space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">My Class</p><p className="text-xl font-black text-white mt-1">{myClass?.name||'Not assigned'}</p><p className="text-xs text-zinc-400 mt-1">Faculty: {myFaculty?.full_name||myFaculty?.email||'None'}</p></div>
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Pending Assignments</p><p className="text-3xl font-black text-orange-400 mt-1">{pending.length}</p></div>
-        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submitted / Graded</p><p className="text-3xl font-black text-green-400 mt-1">{done}</p></div>
+        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">My Class (via enrollments)</p><p className="text-xl font-black text-white mt-1">{myClass?.name||'Not assigned'}</p><p className="text-xs text-zinc-400 mt-1">Faculty: {myFaculty?.full_name||myFaculty?.email||'None'}</p><p className="text-[10px] text-zinc-600 mt-1">Enrolled: {enrollment?.created_at? new Date(enrollment.created_at).toLocaleDateString() : '-'}</p></div>
+        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Pending</p><p className="text-3xl font-black text-orange-400 mt-1">{assignments.filter(a=>!mySubs.find(s=>s.assignment_id===a.id)).length}</p></div>
+        <div className="bg-zinc-900/70 border border-white/10 p-5 rounded-[20px]"><p className="text-[10px] uppercase text-zinc-500">Submitted</p><p className="text-3xl font-black text-green-400 mt-1">{mySubs.length}</p></div>
       </div>
-
-      <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full border border-white/10">
-        <button onClick={()=>setTab("assignments")} className={`px-5 py-2.5 rounded-full text-sm font-bold ${tab==="assignments"?'bg-orange-600 text-white':'text-zinc-400'}`}>Assignments ({assignments.length})</button>
-        <button onClick={()=>setTab("classes")} className={`px-5 py-2.5 rounded-full text-sm font-bold ${tab==="classes"?'bg-orange-600 text-white':'text-zinc-400'}`}>My Class</button>
-        <button onClick={()=>setTab("grades")} className={`px-5 py-2.5 rounded-full text-sm font-bold ${tab==="grades"?'bg-orange-600 text-white':'text-zinc-400'}`}>My Grades</button>
+      <div className="grid lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 space-y-3">
+          {assignments.map(a=>{
+            const sub=mySubs.find(s=>s.assignment_id===a.id)
+            const isExpired=a.due_date&&new Date(a.due_date)<new Date()
+            return (
+              <div key={a.id} className={`p-4 rounded-[20px] border ${isExpired&&!sub?'bg-red-500/10 border-red-500/20': sub?'bg-green-500/5 border-green-500/20':'bg-zinc-900/70 border-white/10'}`}>
+                <div className="flex justify-between gap-2">
+                  <div><p className="font-black text-white">{a.title}</p><p className="text-xs text-zinc-400">{a.course} • {myClass?.name||'All Classes'}</p><p className="text-[11px] text-zinc-500 mt-1">Due: {a.due_date?new Date(a.due_date).toLocaleString():'No due'} {isExpired&&<span className="text-red-400 font-bold">• EXPIRED</span>}</p></div>
+                  {sub? <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-xs h-fit font-bold">{sub.grade?`Grade: ${sub.grade}`:'Submitted ✓'}</span> : <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full text-xs h-fit">Pending</span>}
+                </div>
+                {sub?.feedback && <div className="mt-3 bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl"><p className="text-[11px] text-orange-300 font-bold">Teacher Comment:</p><p className="text-sm text-white mt-1">{sub.feedback}</p></div>}
+                {a.attachment_url&&<a href={a.attachment_url} target="_blank" rel="noreferrer" className="inline-block mt-2 text-orange-400 text-xs underline">📎 Download Assignment File</a>}
+                <div className="mt-3 flex gap-2 items-center">
+                  <label className="flex-1 bg-zinc-800 border border-white/10 px-3 py-2.5 rounded-xl text-xs text-white cursor-pointer text-center"> {sub?'Resubmit Work':'Upload Work'} <input type="file" hidden onChange={e=>submitWork(a.id,e.target.files[0])}/></label>
+                  {sub&&<a href={sub.file_url} target="_blank" rel="noreferrer" className="bg-white text-black px-3 py-2 rounded-xl text-xs font-bold">View My Submission</a>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="space-y-4">
+          <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5">
+            <h4 className="font-black text-white mb-3">My Grades</h4>
+            <div className="space-y-2">{mySubs.filter(s=>s.grade).map(s=><div key={s.id} className="bg-black/40 p-3 rounded-xl flex justify-between"><p className="text-sm text-white truncate">{assignments.find(a=>a.id===s.assignment_id)?.title||'Assignment'}</p><span className="text-sm font-black text-green-400">{s.grade}</span></div>)}{mySubs.filter(s=>s.grade).length===0 && <p className="text-xs text-zinc-500">No grades yet</p>}</div>
+          </div>
+        </div>
       </div>
-
-      {tab==="assignments" && (
-        <div className="grid lg:grid-cols-3 gap-5">
-          <div className="lg:col-span-2 space-y-3">
-            {assignments.map(a=>{
-              const sub=mySubs.find(s=>s.assignment_id===a.id)
-              const isExpired=a.due_date&&new Date(a.due_date)<new Date()
-              return (
-                <div key={a.id} className={`p-4 rounded-[20px] border ${isExpired&&!sub?'bg-red-500/10 border-red-500/20': sub?'bg-green-500/5 border-green-500/20':'bg-zinc-900/70 border-white/10'}`}>
-                  <div className="flex justify-between gap-2">
-                    <div><p className="font-black text-white">{a.title}</p><p className="text-xs text-zinc-400">{a.course} • {myClass?.name||'All Classes'}</p><p className="text-[11px] text-zinc-500 mt-1">Due: {a.due_date?new Date(a.due_date).toLocaleString():'No due'} {isExpired&&<span className="text-red-400 font-bold">• EXPIRED</span>}</p></div>
-                    {sub? <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-xs h-fit font-bold">{sub.grade?`Grade: ${sub.grade}`:'Submitted ✓'}</span> : <span className="bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full text-xs h-fit">Pending</span>}
-                  </div>
-                  {sub?.feedback && <div className="mt-3 bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl"><p className="text-[11px] text-orange-300 font-bold">Teacher Comment:</p><p className="text-sm text-white mt-1">{sub.feedback}</p></div>}
-                  {a.attachment_url&&<a href={a.attachment_url} target="_blank" rel="noreferrer" className="inline-block mt-2 text-orange-400 text-xs underline">📎 Download Assignment File</a>}
-                  <div className="mt-3 flex gap-2 items-center">
-                    <label className="flex-1 bg-zinc-800 border border-white/10 px-3 py-2.5 rounded-xl text-xs text-white cursor-pointer text-center"> {sub?'Resubmit Work':'Upload Work'} <input type="file" hidden onChange={e=>submitWork(a.id,e.target.files[0])}/></label>
-                    {sub&&<a href={sub.file_url} target="_blank" rel="noreferrer" className="bg-white text-black px-3 py-2 rounded-xl text-xs font-bold">View My Submission</a>}
-                  </div>
-                </div>
-              )
-            })}
-            {assignments.length===0 && <div className="bg-zinc-900/70 border border-white/10 p-8 rounded-[24px] text-center"><p className="text-zinc-500">No assignments yet for your class {myClass?.name||''}</p><p className="text-xs text-zinc-600 mt-1">Your faculty {myFaculty?.email||''} will publish soon</p></div>}
-          </div>
-          <div className="space-y-4">
-            <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5">
-              <h4 className="font-black text-white mb-3">My Grades</h4>
-              <div className="space-y-2">{mySubs.filter(s=>s.grade).map(s=><div key={s.id} className="bg-black/40 p-3 rounded-xl flex justify-between"><p className="text-sm text-white truncate">{assignments.find(a=>a.id===s.assignment_id)?.title||'Assignment'}</p><span className="text-sm font-black text-green-400">{s.grade}</span></div>)}{mySubs.filter(s=>s.grade).length===0 && <p className="text-xs text-zinc-500">No grades yet</p>}</div>
-            </div>
-            <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5">
-              <h4 className="font-black text-white mb-2">My Class Info</h4>
-              <p className="text-xs text-zinc-400">Class: <span className="text-white">{myClass?.name||'None'}</span></p>
-              <p className="text-xs text-zinc-400 mt-1">Faculty: <span className="text-white">{myFaculty?.full_name||myFaculty?.email||'None'}</span></p>
-              <p className="text-xs text-zinc-400 mt-1">Email: <span className="text-white">{profile.email}</span></p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab==="classes" && (
-        <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
-          <h3 className="font-black text-white text-lg mb-2">My Class Details</h3>
-          <div className="bg-black/40 border border-white/5 p-5 rounded-2xl">
-            <p className="font-black text-white text-xl">{myClass?.name||'Not assigned'}</p>
-            <p className="text-sm text-zinc-400 mt-2">Faculty in charge: <span className="text-white">{myFaculty?.full_name||myFaculty?.email||'Not assigned'}</span></p>
-            <p className="text-sm text-zinc-400 mt-1">Faculty email: <span className="text-white">{myFaculty?.email||'-'}</span></p>
-            <p className="text-xs text-zinc-500 mt-4">You are enrolled in {myClass?.name||'no class'}. All assignments for this class will appear in Assignments tab.</p>
-          </div>
-        </div>
-      )}
-
-      {tab==="grades" && (
-        <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
-          <h3 className="font-black text-white text-lg mb-4">My Grades & Feedback</h3>
-          <div className="space-y-3">
-            {mySubs.map(s=>{
-              const ass=assignments.find(a=>a.id===s.assignment_id)
-              return (
-                <div key={s.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl">
-                  <div className="flex justify-between"><p className="font-bold text-white">{ass?.title||'Assignment'}</p><span className={`px-3 py-1 rounded-full text-xs font-bold ${s.grade?'bg-green-500/20 text-green-400':'bg-zinc-700 text-zinc-400'}`}>{s.grade||'Not graded'}</span></div>
-                  {s.feedback && <div className="mt-2 bg-orange-500/10 border border-orange-500/20 p-2 rounded-xl"><p className="text-[11px] text-orange-300">Teacher says:</p><p className="text-sm text-white">{s.feedback}</p></div>}
-                  <a href={s.file_url} target="_blank" rel="noreferrer" className="text-xs text-zinc-500 underline mt-2 inline-block">View my file</a>
-                </div>
-              )
-            })}
-            {mySubs.length===0 && <p className="text-zinc-500 text-sm">No submissions yet.</p>}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 function ParentDash({profile}){
-  const [child,setChild]=useState(null);
-  useEffect(()=>{(async()=>{if(profile.linked_student_id){const d=await supabase.from('users').select('*').eq('id',profile.linked_student_id).single(); setChild(d.data)}})()},[profile]);
-  return <div className="max-w-[800px] mx-auto"><h2 className="text-xl font-black text-white">Parent View</h2><p className="text-zinc-400">Child: {child?child.email:"Not linked"}</p></div>
+  const [child,setChild]=useState(null); const [childClass,setChildClass]=useState(null); const [childGrades,setChildGrades]=useState([])
+  useEffect(()=>{(async()=>{
+    if(profile.linked_student_id){
+      const d=await supabase.from('users').select('*').eq('id',profile.linked_student_id).single(); if(d.data) setChild(d.data)
+      const enroll=await supabase.from('enrollments').select('*').eq('student_id', profile.linked_student_id).single(); if(enroll.data){ const c=await supabase.from('classes').select('*').eq('id', enroll.data.class_id).single(); if(c.data) setChildClass(c.data) }
+      const subs=await supabase.from('submissions').select('*').eq('student_id', profile.linked_student_id); if(subs.data) setChildGrades(subs.data)
+    }
+  })()},[profile]);
+  return <div className="max-w-[800px] mx-auto space-y-4"><h2 className="text-xl font-black text-white">Parent View V2</h2><div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><p className="text-zinc-400">Child: {child?child.email:"Not linked"}</p><p className="text-zinc-400">Class (via enrollments): {childClass?.name||'N/A'}</p><p className="text-zinc-400">Submissions: {childGrades.length}</p></div></div>
 }
 
 export default AppWrapper
