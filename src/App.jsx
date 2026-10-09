@@ -202,35 +202,29 @@ function GradebookModule({ profile, classes, enrollments, users }){
   )
 }
 
-// FIXED REPORT CARD - reads BOTH grades table AND submissions grades
 function StudentReportCard({profile}){
   const [grades, setGrades] = useState([])
   const [subjects, setSubjects] = useState([])
   const [subs, setSubs] = useState([])
   const [assignments, setAssignments] = useState([])
-
   useEffect(()=>{(async()=>{
     const {data} = await supabase.from('grades').select('*').eq('student_id', profile.id); if(data) setGrades(data)
     const {data:sub} = await supabase.from('subjects').select('*'); if(sub) setSubjects(sub)
     const {data:s} = await supabase.from('submissions').select('*').eq('student_id', profile.id).not('grade','is',null); if(s) setSubs(s)
     const {data:a} = await supabase.from('assignments').select('*'); if(a) setAssignments(a)
   })()},[])
-
   const grouped={}
   grades.forEach(g=>{
     const subj = subjects.find(s=>s.id===g.subject_id)?.name || 'Subject'
     if(!grouped[subj]) grouped[subj]=[]
     grouped[subj].push(g)
   })
-
   const calc=(list)=>{
     const w={test1:20,test2:20,assignment:20,final:40}
     let total=0
     list.forEach(g=> total += (parseFloat(g.score)||0)*(w[g.assessment_type]||0)/100)
     return Math.round(total)
   }
-
-  // FALLBACK: if gradebook empty, use submissions grades (your current case)
   let displayGroups = {...grouped}
   let isFallback = false
   if(Object.keys(grouped).length===0 && subs.length>0){
@@ -244,12 +238,9 @@ function StudentReportCard({profile}){
       displayGroups[subjName].push({assessment_type:'final', score:num, title:subjName})
     })
   }
-
   const calcFallback = (list)=> Math.round(list.reduce((a,b)=>a+(parseFloat(b.score)||0),0)/list.length)
-
   const all = Object.values(displayGroups).map(g=> isFallback? calcFallback(g) : calc(g))
   const avg = all.length? Math.round(all.reduce((a,b)=>a+b,0)/all.length) : 0
-
   return (
     <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-5">
       <div className="flex justify-between items-center mb-4">
@@ -267,7 +258,6 @@ function StudentReportCard({profile}){
     </div>
   )
 }
-// ==================== END GRADEBOOK MODULE ====================
 
 function AppWrapper(){
   const [user,setUser]=useState(null)
@@ -378,6 +368,7 @@ function AuthPage({mode,setMode,form,setForm,onSubmit,lockedUntil,submitting}){
   )
 }
 
+// ==================== ADMIN DASH - FIXED WITH ALL USERS + ENROLMENT + DELETE ====================
 function AdminDash({profile}){
   const [users,setUsers]=useState([]); const [classes,setClasses]=useState([]); const [enrollments,setEnrollments]=useState([])
   const [tab,setTab]=useState("classes")
@@ -386,6 +377,7 @@ function AdminDash({profile}){
   const [addStudentIds,setAddStudentIds]=useState([])
   const [currentYear,setCurrentYear]=useState(null)
   const [currentTerm,setCurrentTerm]=useState(null)
+  const [search,setSearch]=useState("")
 
   const load=async()=>{
     const {data:u}=await supabase.from('users').select('*').order('created_at',{ascending:false}); if(u) setUsers(u)
@@ -435,6 +427,18 @@ function AdminDash({profile}){
     load()
   }
 
+  const deleteUser = async(userId)=>{
+    if(userId===profile.id) return alert("Can't delete yourself")
+    if(!confirm("Delete this user? Removes enrollments, attendance, grades, submissions.")) return
+    await supabase.from('enrollments').delete().eq('student_id', userId)
+    await supabase.from('attendance').delete().eq('student_id', userId)
+    await supabase.from('grades').delete().eq('student_id', userId)
+    await supabase.from('submissions').delete().eq('student_id', userId)
+    const {error}=await supabase.from('users').delete().eq('id', userId)
+    if(error) alert("Delete failed: "+error.message)
+    else load()
+  }
+
   const exportClasses=()=>{
     const rows=[]
     classes.forEach(c=>{
@@ -446,10 +450,26 @@ function AdminDash({profile}){
     const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Roster"); XLSX.writeFile(wb,`MARS-Roster-V2-${new Date().toISOString().slice(0,10)}.xlsx`)
   }
 
+  const filteredUsers = users.filter(u=>
+    u.email?.toLowerCase().includes(search.toLowerCase()) ||
+    u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+    u.role?.toLowerCase().includes(search.toLowerCase())
+  )
+  const enrolmentUsers = users.filter(u=> (u.role||'').toLowerCase()==='student' || (u.role||'').toLowerCase()==='user')
+
   return (
     <div className="space-y-6 max-w-[1300px] mx-auto w-full">
       <div className="flex gap-2 flex-wrap"><button onClick={exportClasses} className="bg-orange-600 text-white px-4 py-2 rounded-full text-xs font-black">🏫 Export Classes + Roster V2</button><span className="text-xs text-zinc-500 bg-zinc-900 px-3 py-2 rounded-full border border-white/10">Year: {currentYear?.name||'2026'} | Term: {currentTerm?.name||'Term 3'} | Enrollments: {enrollments.length}</span></div>
-      <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full overflow-x-auto border border-white/10">{[{id:"classes",l:`Classes (${classes.length})`},{id:"users",l:"All Users"},{id:"approvals",l:`Approvals (${pending.length})`}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>)}</div>
+
+      <div className="flex gap-2 bg-zinc-900/80 p-1 rounded-full overflow-x-auto border border-white/10">
+        {[
+          {id:"classes",l:`Classes (${classes.length})`},
+          {id:"users",l:`All Users (${users.length})`},
+          {id:"enrolment",l:`Enrolment (${enrolmentUsers.length})`},
+          {id:"approvals",l:`Approvals (${pending.length})`}
+        ].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`px-5 py-2.5 rounded-full text-sm font-bold shrink-0 ${tab===t.id?'bg-orange-600 text-white':'text-zinc-400'}`}>{t.l}</button>)}
+      </div>
+
       {tab==="classes" && (
         <div className="space-y-6">
           <div className="bg-zinc-900/70 border border-white/10 p-4 md:p-6 rounded-[24px]">
@@ -487,8 +507,57 @@ function AdminDash({profile}){
           })}</div>
         </div>
       )}
-      {tab==="users" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><p className="text-white font-black">All Users ({users.length})</p><p className="text-xs text-zinc-500 mt-2">V2 now reads students from enrollments table, not users.class_id</p></div>)}
-      {tab==="approvals" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><div className="grid gap-3">{users.filter(u=>!u.is_active).map(u=>(<div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between"><p className="font-bold text-white">{u.email}</p><button onClick={async()=>{await supabase.from('users').update({is_active:true}).eq('id',u.id); load()}} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold">Approve</button></div>))}</div></div>)}
+
+      {tab==="users" && (
+        <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
+          <div className="flex flex-col md:flex-row justify-between gap-3 mb-4">
+            <p className="text-white font-black text-lg">All Users ({filteredUsers.length} / {users.length}) - All displayed</p>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search email / name / role..." className="bg-zinc-800 border border-white/10 px-4 py-2 rounded-xl text-sm w-full md:w-72 text-white"/>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-[10px] uppercase tracking-widest text-zinc-500 border-b border-white/10"><th className="p-3 text-left">User</th><th className="p-3 text-left">Role</th><th className="p-3 text-left">Status</th><th className="p-3 text-right">Delete</th></tr></thead>
+              <tbody>
+                {filteredUsers.map(u=>(
+                  <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.03]">
+                    <td className="p-3"><p className="font-bold text-white">{u.full_name||'-'}</p><p className="text-xs text-zinc-400">{u.email}</p><p className="text-[10px] text-zinc-600">{u.id.slice(0,8)}...</p></td>
+                    <td className="p-3"><span className="bg-white/10 px-2.5 py-1 rounded-full text-xs text-white">{u.role}</span></td>
+                    <td className="p-3"><span className={`px-2 py-1 rounded-full text-[10px] font-bold ${u.is_active?'bg-green-500/20 text-green-400':'bg-orange-500/20 text-orange-400'}`}>{u.is_active?'Active':'Pending'}</span></td>
+                    <td className="p-3 text-right"><button onClick={()=>deleteUser(u.id)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-full text-xs font-bold">Delete</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab==="enrolment" && (
+        <div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6">
+          <p className="text-white font-black text-lg mb-1">Enrolment - All users logged as user/student ({enrolmentUsers.length})</p>
+          <p className="text-xs text-zinc-500 mb-4">V2 reads from enrollments table, shows all users with role student/user</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-[10px] uppercase text-zinc-500 border-b border-white/10"><th className="p-3 text-left">Student</th><th className="p-3 text-left">Email</th><th className="p-3 text-left">Enrolled Class</th><th className="p-3 text-right">Delete</th></tr></thead>
+              <tbody>
+                {enrolmentUsers.map(u=>{
+                  const myEnrols = enrollments.filter(e=>e.student_id===u.id)
+                  return (
+                    <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.03]">
+                      <td className="p-3"><p className="font-bold text-white">{u.full_name||u.email.split('@')[0]}</p><p className="text-[10px] text-zinc-500">{u.role}</p></td>
+                      <td className="p-3 text-zinc-400">{u.email}</td>
+                      <td className="p-3">{myEnrols.length? myEnrols.map(e=>{ const cls=classes.find(c=>c.id===e.class_id); return <span key={e.id} className="bg-orange-500/20 text-orange-300 px-2 py-1 rounded-full text-xs mr-1">{cls?.name||'Class'}</span> }) : <span className="text-xs text-red-400 bg-red-500/10 px-2 py-1 rounded-full">Not Enrolled</span>}</td>
+                      <td className="p-3 text-right"><button onClick={()=>deleteUser(u.id)} className="bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-3 py-1 rounded-full text-xs">Delete</button></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab==="approvals" && (<div className="bg-zinc-900/70 border border-white/10 rounded-[24px] p-6"><div className="grid gap-3">{users.filter(u=>!u.is_active).map(u=>(<div key={u.id} className="bg-black/40 border border-white/5 p-4 rounded-2xl flex justify-between items-center"><div><p className="font-bold text-white">{u.full_name||u.email}</p><p className="text-xs text-zinc-500">{u.email} • {u.role}</p></div><div className="flex gap-2"><button onClick={async()=>{await supabase.from('users').update({is_active:true}).eq('id',u.id); load()}} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold">Approve</button><button onClick={()=>deleteUser(u.id)} className="bg-zinc-800 text-white px-3 py-2 rounded-xl text-xs">Delete</button></div></div>))}{pending.length===0&&<p className="text-zinc-500 text-sm text-center py-10">No pending approvals</p>}</div></div>)}
     </div>
   )
 }
